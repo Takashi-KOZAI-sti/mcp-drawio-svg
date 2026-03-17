@@ -1,0 +1,36 @@
+{
+  "name": "mcp-drawio-svg",
+  "version": "0.1.0",
+  "description": "MCP server that generates .drawio.svg files — editable in draw.io and embeddable as SVG in Markdown",
+  "author": "Takashi Kozai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tkozai/mcp-drawio-svg.git"
+  },
+  "keywords": ["mcp", "drawio", "svg", "diagram", "draw.io", "claude", "ai"],
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-drawio-svg": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "elkjs": "^0.9.3",
+    "simple-icons": "^13.0.0",
+    "web-worker": "^1.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

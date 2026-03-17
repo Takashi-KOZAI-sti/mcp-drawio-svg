@@ -1,0 +1,12 @@
+{
+  "name": "mcp-drawio-svg",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "postCreateCommand": "npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hediet.vscode-drawio"
+      ]
+    }
+  }
+}
