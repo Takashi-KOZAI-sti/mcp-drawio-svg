@@ -193,15 +193,18 @@ export interface EditDrawioSvgInput {
 }
 
 export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<string> {
-  // Detect format and branch to surgical path for hand-crafted (Format B) files
   const rawSvgContent = fs.readFileSync(input.file_path, 'utf-8');
-  if (detectDrawioFormat(rawSvgContent) === 'B') {
+  const format = detectDrawioFormat(rawSvgContent);
+  const effectiveLayoutMode = input.layout_mode ?? 'preserve';
+
+  // Format B + preserve: use surgical edit to retain draw.io custom styles
+  if (format === 'B' && effectiveLayoutMode !== 'recompute') {
     const updatedSvg = await surgicallyEditFormatB(rawSvgContent, input);
     fs.writeFileSync(input.file_path, updatedSvg, 'utf-8');
     return `Successfully edited: ${input.file_path}`;
   }
 
-  // ── Format A (MCP-generated): existing parse → regenerate pipeline ──
+  // Format A (all modes) or Format B + recompute: parse → regenerate pipeline
 
   // 1. Parse existing file
   const spec = parseDrawioSvgFile(input.file_path);
@@ -296,15 +299,14 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
   const effectiveLayout = input.layout ?? spec.layout;
 
   // 9. Branch on layout_mode
-  const effectiveLayoutMode = input.layout_mode ?? 'preserve';
-
   if (effectiveLayoutMode === 'recompute') {
-    // Full ELK recompute — strip preserved connection points
+    // Full ELK recompute — strip preserved coordinates and connection points
+    // so that ELK computes a fresh layout from scratch
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     return handleCreateDrawioSvg({
-      nodes,
+      nodes: nodes.map(({ x_hint, y_hint, x_geom, y_geom, width, height, ...rest }) => rest),
       edges: edges.map(({ exitX, exitY, entryX, entryY, ...rest }) => rest),
-      groups,
+      groups: groups.map(({ x, y, width, height, ...rest }) => rest),
       layout: effectiveLayout,
       output_path: input.file_path,
     });
