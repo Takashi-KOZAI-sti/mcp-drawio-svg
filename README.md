@@ -162,75 +162,103 @@ npm run build
 
 ---
 
-## Example
+## Example: ざっくりプロンプトから構成図を生成
 
-### AI へのプロンプト例
+ユーザーは細かいパラメータを指定する必要はない。ざっくりとした指示を出すだけで、AI が構成要素・接続関係・アイコン・レイアウトをすべて補完し、MCP ツールを呼び出して `.drawio.svg` を生成する。
+
+### Step 1: ユーザーがざっくりプロンプトを投げる
 
 ```
-以下の Azure インフラ構成の .drawio.svg を作成してください。
-
-ノード:
-- users: "Users"
-- github: "GitHub"  layer_hint: last
-- entra: "Microsoft Entra ID"  icon: /icons/azure/entra-id.svg
-- swa: "Static Web Apps"       icon: /icons/azure/static-web-apps.svg
-- appinsights: "Application Insights"  icon: /icons/azure/application-insights.svg
-- keyvault: "Key Vault"        icon: /icons/azure/key-vault.svg
-- pg: "PostgreSQL"             icon: /icons/azure/postgresql.svg
-- func: "Azure Functions"      icon: /icons/azure/functions.svg
-- pe: "Private Endpoint"       icon: /icons/azure/private-link.svg
-
-エッジ:
-- users → swa
-- github → swa  style: dashed  label: "CI/CD"
-- swa → func
-- func → pg       style: dashed
-- func → keyvault style: dashed
-- func → appinsights style: dashed
-- pe → pg
-
-グループ:
-- func_subnet: "Functions Integration Subnet"  children: [func]   style: blue
-- pe_subnet:   "Private Endpoint Subnet"       children: [pe]     style: blue
-- vnet:        "Azure Virtual Network"         children: [func_subnet, pe_subnet]  style: orange
-- azure:       "Microsoft Azure"               children: [entra, swa, appinsights, keyvault, pg, vnet]  style: blue
-
-レイアウト: direction=RIGHT, group_direction=DOWN
-出力: /path/to/docs/infrastructure.drawio.svg
+Azure 上で典型的な Web アプリケーションを構築する際のインフラ構成図を作ってください。
+構成図の中のアイコンは、./icons フォルダから適切なものを選んで指定してください。
 ```
 
-### 対応する JSON 入力
+### Step 2: AI が構成を提案する（Claude Code Plan モードの例）
+
+AI がドメイン知識をもとに構成要素・接続・グルーピングを自動で設計し、提案する：
+
+```
+## 構成要素
+
+典型的な Azure Web アプリ構成:
+
+1. Users → Front Door (CDN/WAF) → Application Gateway → App Service
+   → SQL Database / Cache Redis / Blob Storage
+2. 監視: Application Insights
+3. セキュリティ: Key Vault, Entra ID
+4. ネットワーク: Virtual Network, NSG
+
+## ノード & アイコンパス
+
+| ノード               | アイコンパス                                            |
+|----------------------|---------------------------------------------------------|
+| Users                | general/10783-icon-service-Browser.svg                  |
+| Front Door & CDN     | web/10073-icon-service-Front-Door-and-CDN-Profiles.svg  |
+| Application Gateway  | networking/10076-icon-service-Application-Gateways.svg  |
+| App Service          | web/10035-icon-service-App-Services.svg                 |
+| SQL Database         | databases/10130-icon-service-SQL-Database.svg           |
+| Cache for Redis      | databases/10137-icon-service-Cache-Redis.svg            |
+| Blob Storage         | storage/10086-icon-service-Storage-Accounts.svg         |
+| Key Vault            | security/10245-icon-service-Key-Vaults.svg              |
+| ...                  | ...                                                     |
+
+## グループ構成
+
+- Azure Subscription（全体）
+  - Virtual Network グループ: Application Gateway, App Service
+  - Data Services グループ: SQL Database, Cache for Redis, Blob Storage
+  - Security & Identity グループ: Key Vault, Entra ID
+
+## エッジ（接続）
+
+Users → Front Door → App Gateway → App Service → SQL Database / Redis / Blob Storage
+App Service → Key Vault (dashed), Application Insights → App Service (dashed, monitoring) ...
+
+## レイアウト
+
+algorithm: layered, direction: RIGHT, spacing: 70
+```
+
+### Step 3: ユーザーが承認する
+
+```
+それで作ってください。
+```
+
+AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.drawio.svg` ファイルが生成される。
+
+### 生成時に AI が構築する JSON（参考）
+
+実際にはユーザーがこの JSON を書く必要はない。AI が自動で構築して MCP ツールに渡す：
 
 ```json
 {
   "nodes": [
     { "id": "users",       "label": "Users" },
-    { "id": "github",      "label": "GitHub",               "layer_hint": "last" },
-    { "id": "entra",       "label": "Microsoft Entra ID",   "icon_path": "/icons/azure/entra-id.svg" },
-    { "id": "swa",         "label": "Static Web Apps",      "icon_path": "/icons/azure/static-web-apps.svg" },
-    { "id": "appinsights", "label": "Application Insights", "icon_path": "/icons/azure/application-insights.svg" },
-    { "id": "keyvault",    "label": "Key Vault",            "icon_path": "/icons/azure/key-vault.svg" },
-    { "id": "pg",          "label": "PostgreSQL",           "icon_path": "/icons/azure/postgresql.svg" },
-    { "id": "func",        "label": "Azure Functions",      "icon_path": "/icons/azure/functions.svg" },
-    { "id": "pe",          "label": "Private Endpoint",     "icon_path": "/icons/azure/private-link.svg" }
+    { "id": "frontdoor",   "label": "Front Door & CDN",     "icon_path": "/path/to/icons/web/10073-icon-service-Front-Door-and-CDN-Profiles.svg" },
+    { "id": "appgw",       "label": "Application Gateway",  "icon_path": "/path/to/icons/networking/10076-icon-service-Application-Gateways.svg" },
+    { "id": "appsvc",      "label": "App Service",          "icon_path": "/path/to/icons/web/10035-icon-service-App-Services.svg" },
+    { "id": "sqldb",       "label": "SQL Database",         "icon_path": "/path/to/icons/databases/10130-icon-service-SQL-Database.svg" },
+    { "id": "redis",       "label": "Cache for Redis",      "icon_path": "/path/to/icons/databases/10137-icon-service-Cache-Redis.svg" },
+    { "id": "blob",        "label": "Blob Storage",         "icon_path": "/path/to/icons/storage/10086-icon-service-Storage-Accounts.svg" },
+    { "id": "keyvault",    "label": "Key Vault",            "icon_path": "/path/to/icons/security/10245-icon-service-Key-Vaults.svg" }
   ],
   "edges": [
-    { "source": "users",  "target": "swa" },
-    { "source": "github", "target": "swa",        "style": "dashed", "label": "CI/CD" },
-    { "source": "swa",    "target": "func" },
-    { "source": "func",   "target": "pg",          "style": "dashed" },
-    { "source": "func",   "target": "keyvault",    "style": "dashed" },
-    { "source": "func",   "target": "appinsights", "style": "dashed" },
-    { "source": "pe",     "target": "pg" }
+    { "source": "users",    "target": "frontdoor" },
+    { "source": "frontdoor", "target": "appgw" },
+    { "source": "appgw",    "target": "appsvc" },
+    { "source": "appsvc",   "target": "sqldb" },
+    { "source": "appsvc",   "target": "redis" },
+    { "source": "appsvc",   "target": "blob" },
+    { "source": "appsvc",   "target": "keyvault", "style": "dashed" }
   ],
   "groups": [
-    { "id": "func_subnet", "label": "Functions Integration Subnet", "children": ["func"],                      "style": "blue" },
-    { "id": "pe_subnet",   "label": "Private Endpoint Subnet",      "children": ["pe"],                       "style": "blue" },
-    { "id": "vnet",        "label": "Azure Virtual Network",        "children": ["func_subnet", "pe_subnet"], "style": "orange" },
-    { "id": "azure",       "label": "Microsoft Azure",              "children": ["entra", "swa", "appinsights", "keyvault", "pg", "vnet"], "style": "blue" }
+    { "id": "vnet",      "label": "Virtual Network",      "children": ["appgw", "appsvc"],          "style": "orange" },
+    { "id": "data",      "label": "Data Services",        "children": ["sqldb", "redis", "blob"],   "style": "blue" },
+    { "id": "azure",     "label": "Azure Subscription",   "children": ["frontdoor", "vnet", "data", "keyvault"], "style": "blue" }
   ],
-  "layout": { "direction": "RIGHT", "group_direction": "DOWN" },
-  "output_path": "/path/to/docs/infrastructure.drawio.svg"
+  "layout": { "algorithm": "layered", "direction": "RIGHT", "spacing": 70 },
+  "output_path": "/path/to/docs/azure-webapp-architecture.drawio.svg"
 }
 ```
 
