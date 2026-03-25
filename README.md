@@ -282,6 +282,14 @@ AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.
 
 既存の `.drawio.svg` ファイルの構造（ノード・エッジ・グループ・レイアウト設定）を JSON で返す。ファイルを編集する前に現在の内容を確認するために使用する。
 
+**図の論理的な内容を理解するには、返り値の JSON を直接読む：**
+
+| フィールド | 意味 |
+|---|---|
+| `nodes[].label` | コンポーネント名（例: "Azure App Service", "PostgreSQL"） |
+| `edges[].source` / `.target` / `.label` | どのコンポーネントがどのコンポーネントに、何の用途で接続しているか（例: "HTTPS", "Auth"） |
+| `groups[].label` / `.children` | 論理的なグループ境界（例: VNet、リソースグループ） |
+
 ### Parameters
 
 | Field | Type | Required | Description |
@@ -302,8 +310,7 @@ AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.
     { "id": "backend", "label": "Backend", "children": ["api", "postgresql"], "style": "blue" }
   ],
   "layout": { "direction": "RIGHT", "spacing": 60 },
-  "output_path": "/path/to/diagram.drawio.svg",
-  "summary": "..."
+  "output_path": "/path/to/diagram.drawio.svg"
 }
 ```
 

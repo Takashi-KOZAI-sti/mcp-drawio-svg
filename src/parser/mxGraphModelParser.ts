@@ -130,6 +130,10 @@ function extractMxGraphModelXml(svgContent: string): string {
     if (!base64Data) {
       throw new Error('Empty <diagram> content in mxfile.');
     }
+    // Some draw.io versions embed the XML directly (uncompressed) inside <diagram>
+    if (base64Data.startsWith('<mxGraphModel')) {
+      return base64Data;
+    }
     const compressed = Buffer.from(base64Data, 'base64');
     const decompressed = zlib.inflateRawSync(compressed).toString('utf-8');
     return decodeURIComponent(decompressed);

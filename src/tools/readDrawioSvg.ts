@@ -5,7 +5,11 @@ export const READ_DRAWIO_SVG_TOOL = {
   description:
     'Read an existing .drawio.svg file and return its diagram as structured JSON ' +
     '(nodes, edges, groups, layout). ' +
-    'Use this to understand the current structure of an existing file before editing. ' +
+    'To understand the diagram content — e.g. what components exist, how they are connected, ' +
+    'and which group they belong to — read the returned JSON directly: ' +
+    '  nodes[].label: component names; ' +
+    '  edges[].source / .target / .label: connectivity and protocol; ' +
+    '  groups[].label / .children: logical boundaries (VNet, resource group, etc.). ' +
     'Typical workflows: ' +
     '(1) read_drawio_svg → edit_drawio_svg: targeted add/remove/update; node icons are preserved automatically. ' +
     '(2) read_drawio_svg → create_drawio_svg: full rebuild; icons are NOT carried over from the file, specify them via icon_path or icon_data_uri. ' +
@@ -43,7 +47,6 @@ export interface ReadDrawioSvgOutput {
   groups: DiagramSpec['groups'];
   layout?: DiagramSpec['layout'];
   output_path: string;
-  summary: string;
 }
 
 export async function handleReadDrawioSvg(input: ReadDrawioSvgInput): Promise<string> {
@@ -63,34 +66,6 @@ export async function handleReadDrawioSvg(input: ReadDrawioSvgInput): Promise<st
     groups: spec.groups,
     layout: spec.layout,
     output_path: spec.output_path,
-    summary: buildSummary(spec),
   };
   return JSON.stringify(output, null, 2);
-}
-
-function buildSummary(spec: DiagramSpec): string {
-  const nodeCount = spec.nodes.length;
-  const edgeCount = spec.edges.length;
-  const groupCount = spec.groups.length;
-
-  const nodeLabels = spec.nodes.map((n) => `${n.label} (id: ${n.id})`).join(', ');
-  const groupLabels = spec.groups.map((g) => `${g.label} (id: ${g.id}, children: ${g.children.join(', ')})`).join('; ');
-  const hasIconCount = spec.nodes.filter((n) => n.icon_data_uri).length;
-  const layoutDesc = spec.layout
-    ? `direction=${spec.layout.direction ?? 'RIGHT'}, spacing=${spec.layout.spacing ?? 60}`
-    : 'default layout (direction=RIGHT, spacing=60) — no data-layout found in file';
-
-  const parts = [
-    `Diagram contains ${nodeCount} node(s), ${edgeCount} edge(s), ${groupCount} group(s).`,
-  ];
-  if (nodeCount > 0) parts.push(`Nodes: ${nodeLabels}.`);
-  if (groupCount > 0) parts.push(`Groups: ${groupLabels}.`);
-  if (hasIconCount > 0) parts.push(`${hasIconCount} node(s) have icons (has_icon: true). Icons are preserved automatically when using edit_drawio_svg.`);
-  parts.push(`Layout: ${layoutDesc}.`);
-  parts.push(
-    'To edit: modify the nodes/edges/groups in this JSON and call create_drawio_svg with output_path, ' +
-    'or use edit_drawio_svg for targeted add/remove/update operations.',
-  );
-
-  return parts.join(' ');
 }
