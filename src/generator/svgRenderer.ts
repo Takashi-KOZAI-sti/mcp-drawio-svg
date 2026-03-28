@@ -3,67 +3,7 @@ import type { LayoutResult, LayoutNode, LayoutGroup, NodeStyleOverrides, GroupSt
 import type { NodeIcons, NodeHighlights } from './mxGraphModel.js';
 import { buildBoundsMap, computeEdgePoints } from './edgeLayout.js';
 import { escapeXmlAttr } from '../utils/xmlEncoding.js';
-
-// Re-export color helpers by inlining them (avoids circular deps in SVG context)
-function resolveColor(color: string): string {
-  switch (color.toLowerCase()) {
-    case 'red':    return '#C62828';
-    case 'yellow': return '#F9A825';
-    case 'blue':   return '#0078D4';
-    case 'orange': return '#E47911';
-    case 'green':  return '#2E7D32';
-    case 'purple': return '#6A1B9A';
-  }
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
-  return '#666666';
-}
-
-function resolveColorLight(color: string): string {
-  switch (color.toLowerCase()) {
-    case 'red':    return '#FFEBEE';
-    case 'yellow': return '#FFFDE7';
-    case 'blue':   return '#E3F2FD';
-    case 'orange': return '#FFF3E0';
-    case 'green':  return '#E8F5E9';
-    case 'purple': return '#F3E5F5';
-  }
-  if (/^#[0-9a-f]{6}$/i.test(color)) return hexToLight(color);
-  return '#f5f5f5';
-}
-
-function hexToLight(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const lr = Math.round(r * 0.15 + 255 * 0.85);
-  const lg = Math.round(g * 0.15 + 255 * 0.85);
-  const lb = Math.round(b * 0.15 + 255 * 0.85);
-  return `#${lr.toString(16).padStart(2, '0')}${lg.toString(16).padStart(2, '0')}${lb.toString(16).padStart(2, '0')}`;
-}
-
-function groupColors(style?: string): { stroke: string; fill: string; font: string } {
-  const normalized = style?.toLowerCase() ?? 'green';
-  switch (normalized) {
-    case 'blue':
-    case 'vnet':
-      return { stroke: '#0078D4', fill: '#E6F2FF', font: '#0078D4' };
-    case 'orange':
-      return { stroke: '#E47911', fill: '#FFF3E0', font: '#B25000' };
-    case 'red':
-      return { stroke: '#C62828', fill: '#FFEBEE', font: '#C62828' };
-    case 'purple':
-      return { stroke: '#6A1B9A', fill: '#F3E5F5', font: '#6A1B9A' };
-    case 'gray':
-      return { stroke: '#616161', fill: '#F5F5F5', font: '#424242' };
-    case 'green':
-    case 'default':
-      return { stroke: '#82b366', fill: '#d5e8d4', font: '#333333' };
-  }
-  if (/^#[0-9a-f]{6}$/i.test(normalized)) {
-    return { stroke: normalized, fill: hexToLight(normalized), font: normalized };
-  }
-  return { stroke: '#82b366', fill: '#d5e8d4', font: '#333333' };
-}
+import { resolveColor, resolveColorLight, hexToLightBackground, resolveGroupColors } from '../utils/colorResolution.js';
 
 const LABEL_FONT_SIZE = 11;
 const LABEL_LINE_HEIGHT = 14;
@@ -128,7 +68,7 @@ export function generateSvgVisual(
 
 function renderGroupAt(group: LayoutGroup, absX: number, absY: number): string {
   const so = group.style_overrides as GroupStyleOverrides | undefined;
-  const { stroke, fill, font } = groupColors(group.style);
+  const { stroke, fill, font } = resolveGroupColors(group.style);
   const finalStroke = so?.stroke_color ?? stroke;
   const finalFill = so?.fill_color ?? fill;
   const finalFont = so?.font_color ?? font;

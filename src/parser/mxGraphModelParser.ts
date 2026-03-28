@@ -2,6 +2,8 @@ import fs from 'fs';
 import zlib from 'zlib';
 import type { LayoutOptions, NodeStyleOverrides, EdgeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
 import { htmlDecode } from '../utils/xmlEncoding.js';
+import { extractAttr, extractGeometry, slugify } from '../utils/mxCellUtils.js';
+import { parseStyleMap } from '../utils/styleMerging.js';
 
 export interface ParsedNode {
   id: string;
@@ -205,23 +207,6 @@ function parseMxCells(xml: string): RawCell[] {
   return cells;
 }
 
-function extractAttr(attrs: string, name: string): string | undefined {
-  const re = new RegExp(`\\b${name}="([^"]*)"`, 'i');
-  const m = re.exec(attrs);
-  return m ? m[1] : undefined;
-}
-
-function extractGeometry(cellXml: string): { x: number; y: number; width: number; height: number } {
-  const geomMatch = cellXml.match(/<mxGeometry\s([^>]*)(?:\/>|>)/);
-  if (!geomMatch) return { x: 0, y: 0, width: 65, height: 85 };
-  const g = geomMatch[1];
-  return {
-    x: parseFloat(extractAttr(g, 'x') ?? '0') || 0,
-    y: parseFloat(extractAttr(g, 'y') ?? '0') || 0,
-    width: parseFloat(extractAttr(g, 'width') ?? '65') || 65,
-    height: parseFloat(extractAttr(g, 'height') ?? '85') || 85,
-  };
-}
 
 // ─── Build DiagramSpec from raw cells ────────────────────────────────────────
 
@@ -450,16 +435,7 @@ function extractHighlight(style: string): string | undefined {
 
 // ─── style_overrides extraction ───────────────────────────────────────────────
 
-/** Parse a drawio style string into a key→value map. */
-function parseStyleMap(style: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const part of style.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    map.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
-  }
-  return map;
-}
+// parseStyleMap is imported from '../utils/styleMerging.js'
 
 /** Decompose a fontStyle bitmask into individual flags. */
 function parseFontStyle(bitmask: number): Pick<NodeStyleOverrides, 'font_bold' | 'font_italic' | 'font_underline' | 'font_strikethrough'> {
@@ -647,11 +623,3 @@ function extractGroupStyleOverrides(style: string): GroupStyleOverrides | undefi
   return Object.keys(so).length > 0 ? so : undefined;
 }
 
-// ─── Slug utility ─────────────────────────────────────────────────────────────
-
-function slugify(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'node';
-}
