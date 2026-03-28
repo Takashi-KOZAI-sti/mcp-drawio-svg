@@ -59,6 +59,7 @@ export function buildPreservedLayoutResult(
       y: n.y_geom ?? 0,
       width: n.width ?? NODE_WIDTH,
       height: n.height ?? NODE_HEIGHT,
+      style_overrides: n.style_overrides,
     }));
 
   // ── New top-level nodes ─────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ export function buildPreservedLayoutResult(
       y: newNodeCursor,
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
+      style_overrides: n.style_overrides,
     });
     newNodeCursor += NODE_HEIGHT + spacing;
   }
@@ -103,6 +105,7 @@ export function buildPreservedLayoutResult(
       y: n.y_geom ?? GROUP_PADDING_TOP,
       width: n.width ?? NODE_WIDTH,
       height: n.height ?? NODE_HEIGHT,
+      style_overrides: n.style_overrides,
     }));
 
     // Compute the bottom edge of existing children to place new children below
@@ -123,6 +126,7 @@ export function buildPreservedLayoutResult(
         y: newChildY,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
+        style_overrides: n.style_overrides,
       });
       newChildY += NODE_HEIGHT + spacing;
     }
@@ -157,6 +161,7 @@ export function buildPreservedLayoutResult(
       height: hasChildren ? maxBottom : (group.height ?? 150),
       nodes: layoutChildNodes,
       groups: layoutChildGroups,
+      style_overrides: group.style_overrides,
     };
   }
 
@@ -182,6 +187,7 @@ export function buildPreservedLayoutResult(
         id: n.id, label: n.label, icon_path: n.icon_path,
         x: GROUP_PADDING_SIDE, y: childY,
         width: NODE_WIDTH, height: NODE_HEIGHT,
+        style_overrides: n.style_overrides,
       };
       childY += NODE_HEIGHT + spacing;
       return node;
@@ -197,6 +203,7 @@ export function buildPreservedLayoutResult(
       height: groupHeight,
       nodes: layoutChildNodes,
       groups: childGroups.map((cg) => buildGroup(cg)),
+      style_overrides: g.style_overrides,
     });
 
     newGroupColumnX += groupWidth + spacing;

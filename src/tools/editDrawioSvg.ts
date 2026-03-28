@@ -1,7 +1,7 @@
 import fs from 'fs';
 import type { InputEdge, InputGroup, LayoutOptions } from '../layout/elkLayout.js';
 import { parseDrawioSvgFile, detectDrawioFormat } from '../parser/mxGraphModelParser.js';
-import { handleCreateDrawioSvg, resolveIcons, type InputNodeWithHighlight } from './createDrawioSvg.js';
+import { handleCreateDrawioSvg, resolveIcons, type InputNodeWithHighlight, NODE_STYLE_OVERRIDES_SCHEMA, EDGE_STYLE_OVERRIDES_SCHEMA, GROUP_STYLE_OVERRIDES_SCHEMA } from './createDrawioSvg.js';
 import { surgicallyEditFormatB } from './surgicalMxEdit.js';
 import { buildPreservedLayoutResult } from '../layout/preservedLayout.js';
 import { generateMxGraphModel } from '../generator/mxGraphModel.js';
@@ -17,7 +17,19 @@ export const EDIT_DRAWIO_SVG_TOOL = {
     'Use layout_mode: "recompute" to fully recompute layout with ELK. ' +
     'Icons of existing (unchanged) nodes are preserved automatically — no need to pass icon data. ' +
     'To replace an icon on an existing node, use update_nodes with icon_path. ' +
-    'Removing a group does not delete its child nodes — they become top-level nodes.',
+    'Removing a group does not delete its child nodes — they become top-level nodes. ' +
+    'All add/update operations support style_overrides for CSS-equivalent per-element visual customization: ' +
+    'add_nodes/update_nodes (fill_color=background-color, stroke_color=border-color, stroke_width=border-width, ' +
+    'stroke_dashed=border-style:dashed, font_bold=font-weight:bold, font_size=font-size, font_color=color, ' +
+    'opacity=opacity, rounded=border-radius, shadow=box-shadow, text_align=text-align, etc.); ' +
+    'add_edges/update_edges (stroke_color, stroke_width, stroke_dashed, font_color, font_size, opacity, etc.); ' +
+    'add_groups/update_groups (fill_color, stroke_color, stroke_width, stroke_dashed, rounded, corner_radius=border-radius%, ' +
+    'font_color, font_size, font_bold, opacity, text_align, shadow, etc.). ' +
+    'update_edges also supports label, style (solid/dashed), connector, and arrow changes — identified by source+target pair. ' +
+    'style_overrides from read_drawio_svg can be passed back to preserve or selectively override existing styles. ' +
+    'IMPORTANT: style_overrides in update_nodes/update_edges/update_groups are MERGED with existing styles — ' +
+    'only specified properties are changed, unspecified properties are preserved. ' +
+    'You do NOT need to re-specify all existing style_overrides when making a partial update.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -44,6 +56,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
             icon_data_uri: { type: 'string', description: 'Embedded SVG icon as a data URI. Use only if you have icon data from another source.' },
             highlight: { type: 'string', nullable: true, description: 'Highlight color (named or #RRGGBB).' },
             layer_hint: { type: 'string', enum: ['first', 'last'] },
+            style_overrides: NODE_STYLE_OVERRIDES_SCHEMA,
           },
           required: ['id', 'label'],
         },
@@ -55,7 +68,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
       },
       update_nodes: {
         type: 'array',
-        description: 'Update label, highlight, or icon of existing nodes.',
+        description: 'Update label, highlight, icon, or style of existing nodes.',
         items: {
           type: 'object',
           properties: {
@@ -64,6 +77,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
             highlight: { type: 'string', nullable: true, description: 'New highlight color, or null to remove.' },
             icon_path: { type: 'string', nullable: true, description: 'New icon path, or null to remove.' },
             icon_data_uri: { type: 'string', description: 'New embedded icon data URI.' },
+            style_overrides: NODE_STYLE_OVERRIDES_SCHEMA,
           },
           required: ['id'],
         },
@@ -88,6 +102,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
                 '"none": no arrowheads. ' +
                 '"both": arrows at both source and target ends.',
             },
+            style_overrides: EDGE_STYLE_OVERRIDES_SCHEMA,
           },
           required: ['source', 'target'],
         },
@@ -104,6 +119,27 @@ export const EDIT_DRAWIO_SVG_TOOL = {
           required: ['source', 'target'],
         },
       },
+      update_edges: {
+        type: 'array',
+        description: 'Update label, style, connector, arrow, or visual style of existing edges, identified by source+target pair. style_overrides are merged with existing styles.',
+        items: {
+          type: 'object',
+          properties: {
+            source: { type: 'string' },
+            target: { type: 'string' },
+            label: { type: 'string' },
+            style: { type: 'string', enum: ['solid', 'dashed'] },
+            connector: { type: 'string', enum: ['straight', 'orthogonal', 'elbow-h', 'elbow-v'] },
+            arrow: {
+              type: 'string',
+              enum: ['default', 'none', 'both'],
+              description: 'Arrow style. "default": arrow at target end only. "none": no arrowheads. "both": arrows at both ends.',
+            },
+            style_overrides: EDGE_STYLE_OVERRIDES_SCHEMA,
+          },
+          required: ['source', 'target'],
+        },
+      },
       add_groups: {
         type: 'array',
         description: 'Groups to add.',
@@ -114,6 +150,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
             label: { type: 'string' },
             children: { type: 'array', items: { type: 'string' } },
             style: { type: 'string' },
+            style_overrides: GROUP_STYLE_OVERRIDES_SCHEMA,
           },
           required: ['id', 'label', 'children'],
         },
@@ -125,7 +162,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
       },
       update_groups: {
         type: 'array',
-        description: 'Update label, style, or children of existing groups.',
+        description: 'Update label, style, children, or visual style of existing groups.',
         items: {
           type: 'object',
           properties: {
@@ -133,6 +170,7 @@ export const EDIT_DRAWIO_SVG_TOOL = {
             label: { type: 'string' },
             style: { type: 'string' },
             children: { type: 'array', items: { type: 'string' } },
+            style_overrides: GROUP_STYLE_OVERRIDES_SCHEMA,
           },
           required: ['id'],
         },
@@ -170,6 +208,7 @@ export interface EditDrawioSvgInput {
     icon_data_uri?: string;
     highlight?: string | null;
     layer_hint?: 'first' | 'last';
+    style_overrides?: import('../layout/elkLayout.js').NodeStyleOverrides;
   }>;
   remove_nodes?: string[];
   update_nodes?: Array<{
@@ -178,9 +217,19 @@ export interface EditDrawioSvgInput {
     highlight?: string | null;
     icon_path?: string | null;
     icon_data_uri?: string;
+    style_overrides?: import('../layout/elkLayout.js').NodeStyleOverrides;
   }>;
   add_edges?: InputEdge[];
   remove_edges?: Array<{ source: string; target: string }>;
+  update_edges?: Array<{
+    source: string;
+    target: string;
+    label?: string;
+    style?: 'solid' | 'dashed';
+    connector?: 'straight' | 'orthogonal' | 'elbow-h' | 'elbow-v';
+    arrow?: 'default' | 'none' | 'both';
+    style_overrides?: import('../layout/elkLayout.js').EdgeStyleOverrides;
+  }>;
   add_groups?: InputGroup[];
   remove_groups?: string[];
   update_groups?: Array<{
@@ -188,6 +237,7 @@ export interface EditDrawioSvgInput {
     label?: string;
     style?: string;
     children?: string[];
+    style_overrides?: import('../layout/elkLayout.js').GroupStyleOverrides;
   }>;
   layout?: LayoutOptions;
 }
@@ -227,6 +277,7 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
       y_geom: n.y_geom,
       width: n.width,
       height: n.height,
+      style_overrides: n.style_overrides,
     }));
 
   // 3. Apply node updates
@@ -239,6 +290,9 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
         highlight: upd.highlight !== undefined ? upd.highlight : n.highlight,
         icon_path: upd.icon_path !== undefined ? (upd.icon_path ?? undefined) : n.icon_path,
         icon_data_uri: upd.icon_data_uri !== undefined ? upd.icon_data_uri : n.icon_data_uri,
+        style_overrides: upd.style_overrides !== undefined
+          ? { ...n.style_overrides, ...upd.style_overrides }
+          : n.style_overrides,
       };
     });
   }
@@ -254,6 +308,23 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
       !removeEdgeSet.has(`${e.source}::${e.target}`),
   );
 
+  // 5a. Apply edge updates
+  for (const upd of input.update_edges ?? []) {
+    edges = edges.map((e) => {
+      if (e.source !== upd.source || e.target !== upd.target) return e;
+      return {
+        ...e,
+        label: upd.label !== undefined ? upd.label : e.label,
+        style: upd.style ?? e.style,
+        connector: upd.connector ?? e.connector,
+        arrow: upd.arrow ?? e.arrow,
+        style_overrides: upd.style_overrides !== undefined
+          ? { ...e.style_overrides, ...upd.style_overrides }
+          : e.style_overrides,
+      };
+    });
+  }
+
   // 5. Apply group removals (children become top-level — no action needed since they stay in nodes array)
   let groups: InputGroup[] = spec.groups
     .filter((g) => !removedGroupIds.has(g.id))
@@ -268,6 +339,7 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
       y: g.y,
       width: g.width,
       height: g.height,
+      style_overrides: g.style_overrides,
     }));
 
   // 6. Apply group updates
@@ -279,6 +351,9 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
         label: upd.label ?? g.label,
         style: upd.style ?? g.style,
         children: upd.children ?? g.children,
+        style_overrides: upd.style_overrides !== undefined
+          ? { ...g.style_overrides, ...upd.style_overrides }
+          : g.style_overrides,
       };
     });
   }
@@ -291,6 +366,7 @@ export async function handleEditDrawioSvg(input: EditDrawioSvgInput): Promise<st
     icon_data_uri: n.icon_data_uri,
     highlight: n.highlight ?? null,
     layer_hint: n.layer_hint,
+    style_overrides: n.style_overrides,
   }))];
   edges = [...edges, ...(input.add_edges ?? [])];
   groups = [...groups, ...(input.add_groups ?? [])];

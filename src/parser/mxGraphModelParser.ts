@@ -1,6 +1,6 @@
 import fs from 'fs';
 import zlib from 'zlib';
-import type { LayoutOptions } from '../layout/elkLayout.js';
+import type { LayoutOptions, NodeStyleOverrides, EdgeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
 
 export interface ParsedNode {
   id: string;
@@ -19,6 +19,8 @@ export interface ParsedNode {
   width: number;
   /** mxGeometry height (for preserve mode) */
   height: number;
+  /** Extracted visual style overrides (non-default properties only) */
+  style_overrides?: NodeStyleOverrides;
 }
 
 export interface ParsedEdge {
@@ -32,6 +34,8 @@ export interface ParsedEdge {
   exitY?: number;
   entryX?: number;
   entryY?: number;
+  /** Extracted visual style overrides (non-default properties only) */
+  style_overrides?: EdgeStyleOverrides;
 }
 
 export interface ParsedGroup {
@@ -44,6 +48,8 @@ export interface ParsedGroup {
   y: number;
   width: number;
   height: number;
+  /** Extracted visual style overrides (non-default properties only) */
+  style_overrides?: GroupStyleOverrides;
 }
 
 export interface DiagramSpec {
@@ -277,6 +283,7 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
       const targetLogical = numericToLogical.get(c.target);
       if (!sourceLogical || !targetLogical) continue; // skip dangling edges
       const arrow = classifyArrow(c.style);
+      const edgeSo = extractEdgeStyleOverrides(c.style);
       edges.push({
         source: sourceLogical,
         target: targetLogical,
@@ -285,6 +292,7 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
         connector: classifyConnector(c.style),
         ...(arrow !== 'default' ? { arrow } : {}),
         ...extractConnectionPoints(c.style),
+        ...(edgeSo ? { style_overrides: edgeSo } : {}),
       });
     } else if (c.isVertex) {
       const logicalId = numericToLogical.get(c.numericId)!;
@@ -294,6 +302,7 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
           .filter((child) => child.isVertex && child.parent === c.numericId)
           .map((child) => numericToLogical.get(child.numericId)!)
           .filter(Boolean);
+        const groupSo = extractGroupStyleOverrides(c.style);
         groups.push({
           id: logicalId,
           label: c.value,
@@ -303,10 +312,12 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
           y: c.y,
           width: c.width,
           height: c.height,
+          ...(groupSo ? { style_overrides: groupSo } : {}),
         });
       } else {
         // Node cell
         const abs = absCoords.get(c.numericId) ?? { x: c.x, y: c.y };
+        const isIcon = c.style.includes('shape=image');
         const node: ParsedNode = {
           id: logicalId,
           label: c.value,
@@ -321,6 +332,8 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
         if (iconDataUri) node.icon_data_uri = iconDataUri;
         const highlight = extractHighlight(c.style);
         if (highlight) node.highlight = highlight;
+        const nodeSo = extractNodeStyleOverrides(c.style, isIcon, !!highlight);
+        if (nodeSo) node.style_overrides = nodeSo;
         nodes.push(node);
       }
     }
@@ -424,18 +437,223 @@ function extractIconDataUri(style: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
+// Named highlight colors produced by resolveColor() in mxGraphModel.ts
+const HIGHLIGHT_STROKE_COLORS = new Set([
+  '#c62828', '#f9a825', '#0078d4', '#e47911', '#2e7d32', '#6a1b9a',
+]);
+
 function extractHighlight(style: string): string | undefined {
-  // For icon nodes with highlight: strokeColor=#XXXXXX;strokeWidth=3
-  if (style.includes('strokeWidth=3')) {
-    const m = style.match(/strokeColor=(#[0-9a-fA-F]{6})/);
-    if (m) return m[1];
-  }
-  // For rectangle nodes: strokeColor differs from default #666666
-  if (style.includes('rounded=1;whiteSpace=wrap')) {
-    const m = style.match(/strokeColor=(#[0-9a-fA-F]{6})/);
-    if (m && m[1].toUpperCase() !== '#666666') return m[1];
-  }
+  const colorMatch = style.match(/strokeColor=(#[0-9a-fA-F]{6})/);
+  if (!colorMatch) return undefined;
+  const color = colorMatch[1].toLowerCase();
+  // Only treat as highlight if the color is from the named highlight palette.
+  // Custom colors set via style_overrides.stroke_color are NOT highlights.
+  if (!HIGHLIGHT_STROKE_COLORS.has(color)) return undefined;
+
+  // For icon nodes with highlight: strokeColor=<named>;strokeWidth=3
+  if (style.includes('strokeWidth=3') && style.includes('shape=image')) return colorMatch[1];
+  // For rectangle nodes with default rounded: non-default named strokeColor = highlight
+  if (style.includes('rounded=1;whiteSpace=wrap')) return colorMatch[1];
   return undefined;
+}
+
+// ─── style_overrides extraction ───────────────────────────────────────────────
+
+/** Parse a drawio style string into a key→value map. */
+function parseStyleMap(style: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const part of style.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    map.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  return map;
+}
+
+/** Decompose a fontStyle bitmask into individual flags. */
+function parseFontStyle(bitmask: number): Pick<NodeStyleOverrides, 'font_bold' | 'font_italic' | 'font_underline' | 'font_strikethrough'> {
+  const result: Pick<NodeStyleOverrides, 'font_bold' | 'font_italic' | 'font_underline' | 'font_strikethrough'> = {};
+  if (bitmask & 1) result.font_bold = true;
+  if (bitmask & 2) result.font_italic = true;
+  if (bitmask & 4) result.font_underline = true;
+  if (bitmask & 8) result.font_strikethrough = true;
+  return result;
+}
+
+/**
+ * Extract node style_overrides from a drawio style string.
+ * Skips properties already covered by the `highlight` field to avoid redundancy.
+ */
+function extractNodeStyleOverrides(style: string, isIcon: boolean, hasHighlight: boolean): NodeStyleOverrides | undefined {
+  const m = parseStyleMap(style);
+  const so: NodeStyleOverrides = {};
+
+  if (!isIcon) {
+    const fill = m.get('fillColor');
+    if (fill && fill !== '#f5f5f5' && !hasHighlight) so.fill_color = fill;
+  }
+
+  const stroke = m.get('strokeColor');
+  if (stroke) {
+    const defaultStroke = isIcon ? 'none' : '#666666';
+    if (stroke !== defaultStroke && !hasHighlight) so.stroke_color = stroke;
+  }
+
+  const sw = m.get('strokeWidth');
+  if (sw) {
+    const swNum = parseFloat(sw);
+    // strokeWidth=3 is used for highlight; only capture other values
+    if (!isNaN(swNum) && swNum !== 1 && !(hasHighlight && swNum === 3)) so.stroke_width = swNum;
+  }
+
+  if (m.get('dashed') === '1') so.stroke_dashed = true;
+
+  const fontColor = m.get('fontColor');
+  if (fontColor && fontColor !== '#333333') so.font_color = fontColor;
+
+  const fontSize = m.get('fontSize');
+  if (fontSize) {
+    const fsNum = parseInt(fontSize);
+    if (!isNaN(fsNum) && fsNum !== 11) so.font_size = fsNum;
+  }
+
+  const fontStyleRaw = m.get('fontStyle');
+  if (fontStyleRaw) {
+    const bits = parseInt(fontStyleRaw);
+    if (!isNaN(bits) && bits > 0) Object.assign(so, parseFontStyle(bits));
+  }
+
+  const opacity = m.get('opacity');
+  if (opacity) {
+    const opNum = parseInt(opacity);
+    if (!isNaN(opNum) && opNum !== 100) so.opacity = opNum;
+  }
+
+  if (!isIcon && m.get('rounded') === '0') so.rounded = false;
+  if (m.get('shadow') === '1') so.shadow = true;
+
+  const align = m.get('align');
+  if (align && align !== 'center') so.text_align = align as 'left' | 'right';
+
+  const vAlign = m.get('verticalAlign');
+  if (!isIcon && vAlign && vAlign !== 'middle') so.text_vertical_align = vAlign as 'top' | 'bottom';
+
+  return Object.keys(so).length > 0 ? so : undefined;
+}
+
+/** Extract edge style_overrides from a drawio style string. */
+function extractEdgeStyleOverrides(style: string): EdgeStyleOverrides | undefined {
+  const m = parseStyleMap(style);
+  const so: EdgeStyleOverrides = {};
+
+  const stroke = m.get('strokeColor');
+  if (stroke && stroke !== '#000000') so.stroke_color = stroke;
+
+  const sw = m.get('strokeWidth');
+  if (sw) {
+    const swNum = parseFloat(sw);
+    if (!isNaN(swNum) && swNum !== 1) so.stroke_width = swNum;
+  }
+
+  if (m.get('dashed') === '1') so.stroke_dashed = true;
+
+  const fontColor = m.get('fontColor');
+  if (fontColor && fontColor !== '#333333') so.font_color = fontColor;
+
+  const fontSize = m.get('fontSize');
+  if (fontSize) {
+    const fsNum = parseInt(fontSize);
+    if (!isNaN(fsNum) && fsNum !== 11) so.font_size = fsNum;
+  }
+
+  const fontStyleRaw = m.get('fontStyle');
+  if (fontStyleRaw) {
+    const bits = parseInt(fontStyleRaw);
+    if (!isNaN(bits) && bits > 0) {
+      const flags = parseFontStyle(bits);
+      if (flags.font_bold) so.font_bold = true;
+      if (flags.font_italic) so.font_italic = true;
+      if (flags.font_underline) so.font_underline = true;
+    }
+  }
+
+  const opacity = m.get('opacity');
+  if (opacity) {
+    const opNum = parseInt(opacity);
+    if (!isNaN(opNum) && opNum !== 100) so.opacity = opNum;
+  }
+
+  return Object.keys(so).length > 0 ? so : undefined;
+}
+
+/** Extract group style_overrides from a drawio style string. */
+function extractGroupStyleOverrides(style: string): GroupStyleOverrides | undefined {
+  const m = parseStyleMap(style);
+  const so: GroupStyleOverrides = {};
+
+  const fill = m.get('fillColor');
+  // Skip if it matches a known palette fill (classifyGroupStyle handles the color name)
+  const knownFills = new Set(['#E6F2FF', '#FFF3E0', '#FFEBEE', '#F3E5F5', '#F5F5F5', '#d5e8d4']);
+  if (fill && !knownFills.has(fill)) so.fill_color = fill;
+
+  const stroke = m.get('strokeColor');
+  const knownStrokes = new Set(['#0078D4', '#E47911', '#C62828', '#6A1B9A', '#616161', '#82b366']);
+  if (stroke && !knownStrokes.has(stroke.toLowerCase()) && !knownStrokes.has(stroke)) so.stroke_color = stroke;
+
+  const sw = m.get('strokeWidth');
+  if (sw) {
+    const swNum = parseFloat(sw);
+    if (!isNaN(swNum) && swNum !== 1) so.stroke_width = swNum;
+  }
+
+  if (m.get('dashed') === '1') so.stroke_dashed = true;
+  if (m.get('rounded') === '0') so.rounded = false;
+
+  const arcSize = m.get('arcSize');
+  if (arcSize) {
+    const asNum = parseInt(arcSize);
+    if (!isNaN(asNum) && asNum !== 7) so.corner_radius = asNum;
+  }
+
+  const fontColor = m.get('fontColor');
+  // Skip known palette font colors
+  const knownFontColors = new Set(['#0078D4', '#B25000', '#C62828', '#6A1B9A', '#424242', '#333333']);
+  if (fontColor && !knownFontColors.has(fontColor)) so.font_color = fontColor;
+
+  const fontSize = m.get('fontSize');
+  if (fontSize) {
+    const fsNum = parseInt(fontSize);
+    if (!isNaN(fsNum) && fsNum !== 11) so.font_size = fsNum;
+  }
+
+  const fontStyleRaw = m.get('fontStyle');
+  if (fontStyleRaw) {
+    const bits = parseInt(fontStyleRaw);
+    if (!isNaN(bits)) {
+      // For groups, bold=1 is the default — only record non-default combinations
+      if (bits !== 1) {
+        if (!(bits & 1)) so.font_bold = false;  // explicitly not bold
+        if (bits & 2) so.font_italic = true;
+        if (bits & 4) so.font_underline = true;
+      }
+    }
+  }
+
+  const opacity = m.get('opacity');
+  if (opacity) {
+    const opNum = parseInt(opacity);
+    if (!isNaN(opNum) && opNum !== 100) so.opacity = opNum;
+  }
+
+  const align = m.get('align');
+  if (align && align !== 'left') so.text_align = align as 'center' | 'right';
+
+  const vAlign = m.get('verticalAlign');
+  if (vAlign && vAlign !== 'top') so.text_vertical_align = vAlign as 'middle' | 'bottom';
+
+  if (m.get('shadow') === '1') so.shadow = true;
+
+  return Object.keys(so).length > 0 ? so : undefined;
 }
 
 // ─── Slug utility ─────────────────────────────────────────────────────────────

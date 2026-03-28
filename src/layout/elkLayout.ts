@@ -4,6 +4,96 @@ import type { ELK, ElkNode } from 'elkjs/lib/elk-api.js';
 import ElkLib from 'elkjs/lib/elk.bundled.js';
 const ELKConstructor = ElkLib as unknown as new () => ELK;
 
+/** Fine-grained visual style overrides for nodes (rectangles and icons). */
+export interface NodeStyleOverrides {
+  /** Background fill color (#RRGGBB or "none"). Equivalent to CSS background-color. Ignored for icon nodes. */
+  fill_color?: string;
+  /** Border color (#RRGGBB or "none"). Equivalent to CSS border-color. */
+  stroke_color?: string;
+  /** Border thickness in pixels (1–10). Equivalent to CSS border-width. Default: 1. */
+  stroke_width?: number;
+  /** Draw border as dashed. Equivalent to CSS border-style: dashed. Default: false. */
+  stroke_dashed?: boolean;
+  /** Label text color (#RRGGBB). Equivalent to CSS color. Default: "#333333". */
+  font_color?: string;
+  /** Label text size in points (8–72). Equivalent to CSS font-size. Default: 11. */
+  font_size?: number;
+  /** Bold label text. Equivalent to CSS font-weight: bold. Default: false. */
+  font_bold?: boolean;
+  /** Italic label text. Equivalent to CSS font-style: italic. Default: false. */
+  font_italic?: boolean;
+  /** Underline label text. Equivalent to CSS text-decoration: underline. Default: false. */
+  font_underline?: boolean;
+  /** Strike-through label text. Equivalent to CSS text-decoration: line-through. Default: false. */
+  font_strikethrough?: boolean;
+  /** Transparency (0–100). 100 = opaque (default), 0 = invisible. Equivalent to CSS opacity × 100. */
+  opacity?: number;
+  /** Rounded corners. Equivalent to CSS border-radius > 0. Default: true. Rectangle nodes only. */
+  rounded?: boolean;
+  /** Drop shadow. Equivalent to CSS box-shadow. Default: false. */
+  shadow?: boolean;
+  /** Horizontal text alignment. Equivalent to CSS text-align. Default: "center". Rectangle nodes only. */
+  text_align?: 'left' | 'center' | 'right';
+  /** Vertical text alignment. Equivalent to CSS vertical-align. Default: "middle". Rectangle nodes only. */
+  text_vertical_align?: 'top' | 'middle' | 'bottom';
+}
+
+/** Fine-grained visual style overrides for edges (connectors). */
+export interface EdgeStyleOverrides {
+  /** Line color (#RRGGBB). Equivalent to CSS border-color. Default: "#000000". */
+  stroke_color?: string;
+  /** Line thickness in pixels (1–10). Equivalent to CSS border-width. Default: 1. */
+  stroke_width?: number;
+  /** Draw line as dashed. Equivalent to CSS border-style: dashed. Default: false. Overrides top-level style: "dashed". */
+  stroke_dashed?: boolean;
+  /** Label text color (#RRGGBB). Equivalent to CSS color. Default: "#333333". */
+  font_color?: string;
+  /** Label text size in points (8–72). Equivalent to CSS font-size. Default: 11. */
+  font_size?: number;
+  /** Bold label text. Equivalent to CSS font-weight: bold. Default: false. */
+  font_bold?: boolean;
+  /** Italic label text. Equivalent to CSS font-style: italic. Default: false. */
+  font_italic?: boolean;
+  /** Underline label text. Equivalent to CSS text-decoration: underline. Default: false. */
+  font_underline?: boolean;
+  /** Transparency (0–100). 100 = opaque (default), 0 = invisible. Equivalent to CSS opacity × 100. */
+  opacity?: number;
+}
+
+/** Fine-grained visual style overrides for groups (containers). */
+export interface GroupStyleOverrides {
+  /** Background fill color (#RRGGBB or "none"). Equivalent to CSS background-color. */
+  fill_color?: string;
+  /** Border color (#RRGGBB or "none"). Equivalent to CSS border-color. */
+  stroke_color?: string;
+  /** Border thickness in pixels (1–10). Equivalent to CSS border-width. Default: 1. */
+  stroke_width?: number;
+  /** Draw border as dashed. Equivalent to CSS border-style: dashed. Default: false. */
+  stroke_dashed?: boolean;
+  /** Rounded corners. Equivalent to CSS border-radius > 0. Default: true. */
+  rounded?: boolean;
+  /** Corner rounding amount (0–50). 0 = square, 50 = very rounded. Analogous to CSS border-radius as a % of the shorter edge. Default: 7. Only effective when rounded is true. */
+  corner_radius?: number;
+  /** Label text color (#RRGGBB). Equivalent to CSS color. */
+  font_color?: string;
+  /** Label text size in points (8–72). Equivalent to CSS font-size. Default: 11. */
+  font_size?: number;
+  /** Bold label text. Equivalent to CSS font-weight: bold. Default: true for groups. */
+  font_bold?: boolean;
+  /** Italic label text. Equivalent to CSS font-style: italic. Default: false. */
+  font_italic?: boolean;
+  /** Underline label text. Equivalent to CSS text-decoration: underline. Default: false. */
+  font_underline?: boolean;
+  /** Transparency (0–100). 100 = opaque (default), 0 = invisible. Equivalent to CSS opacity × 100. */
+  opacity?: number;
+  /** Horizontal text alignment. Equivalent to CSS text-align. Default: "left". */
+  text_align?: 'left' | 'center' | 'right';
+  /** Vertical text alignment. Equivalent to CSS vertical-align. Default: "top". */
+  text_vertical_align?: 'top' | 'middle' | 'bottom';
+  /** Drop shadow. Equivalent to CSS box-shadow. Default: false. */
+  shadow?: boolean;
+}
+
 export interface InputNode {
   id: string;
   label: string;
@@ -21,6 +111,8 @@ export interface InputNode {
   width?: number;
   /** preserve mode: node height from mxGeometry */
   height?: number;
+  /** Fine-grained visual style overrides. Takes precedence over highlight. */
+  style_overrides?: NodeStyleOverrides;
 }
 
 export interface InputEdge {
@@ -35,6 +127,8 @@ export interface InputEdge {
   exitY?: number;
   entryX?: number;
   entryY?: number;
+  /** Fine-grained visual style overrides. stroke_dashed overrides top-level style: "dashed". */
+  style_overrides?: EdgeStyleOverrides;
 }
 
 export interface InputGroup {
@@ -48,6 +142,8 @@ export interface InputGroup {
   y?: number;
   width?: number;
   height?: number;
+  /** Fine-grained visual style overrides. Takes precedence over style color parameter. */
+  style_overrides?: GroupStyleOverrides;
 }
 
 export interface LayoutNode {
@@ -58,6 +154,8 @@ export interface LayoutNode {
   y: number;
   width: number;
   height: number;
+  /** Propagated from InputNode.style_overrides */
+  style_overrides?: NodeStyleOverrides;
 }
 
 export interface LayoutGroup {
@@ -70,6 +168,8 @@ export interface LayoutGroup {
   height: number;
   nodes: LayoutNode[];    // direct child nodes (relative coords)
   groups: LayoutGroup[];  // direct child groups (relative coords, recursive)
+  /** Propagated from InputGroup.style_overrides */
+  style_overrides?: GroupStyleOverrides;
 }
 
 export interface LayoutOptions {
@@ -175,6 +275,7 @@ function parseElkGroup(
         y: child.y ?? 0,
         width: child.width ?? NODE_WIDTH,
         height: child.height ?? NODE_HEIGHT,
+        style_overrides: childInputNode.style_overrides,
       });
     }
   }
@@ -189,6 +290,7 @@ function parseElkGroup(
     height: elkNode.height ?? 150,
     nodes: resultNodes,
     groups: resultGroups,
+    style_overrides: inputGroup.style_overrides,
   };
 }
 
@@ -282,6 +384,7 @@ export async function computeLayout(
         y: child.y ?? 0,
         width: child.width ?? NODE_WIDTH,
         height: child.height ?? NODE_HEIGHT,
+        style_overrides: inputNode.style_overrides,
       });
     }
   }

@@ -82,6 +82,7 @@ npm run build
 | `icon_path` | string | ❌ | ローカルの SVG アイコンファイルへの絶対パス。省略時は `label` をもとに [simple-icons](https://simpleicons.org/) を自動検索 |
 | `highlight` | string | ❌ | ハイライトカラー。名前指定: `"red"` `"yellow"` `"blue"` `"orange"` `"green"` `"purple"`。カスタム: `"#RRGGBB"` |
 | `layer_hint` | `"first"` \| `"last"` | ❌ | フロー方向の先頭・末尾レイヤーへの配置ヒント。`"first"` = 最左（`direction:RIGHT`）または最上（`direction:DOWN`）。`"last"` = 最右または最下 |
+| `style_overrides` | object | ❌ | CSS に相当する詳細スタイル指定。[style_overrides](#style_overrides) 参照 |
 
 #### `edges[]` — エッジ（接続線）
 
@@ -93,6 +94,7 @@ npm run build
 | `style` | `"solid"` \| `"dashed"` | ❌ | 線のスタイル（デフォルト: `"solid"`） |
 | `connector` | `"orthogonal"` \| `"elbow-h"` \| `"elbow-v"` \| `"straight"` | ❌ | ルーティングスタイル（デフォルト: `"orthogonal"`）。`"orthogonal"`: 直角自動ルーティング。`"elbow-h"`: 水平優先 L 字。`"elbow-v"`: 垂直優先 L 字。`"straight"`: 直線 |
 | `arrow` | `"default"` \| `"none"` \| `"both"` | ❌ | 矢印スタイル。`"default"`（省略可）: 接続先のみ矢印。`"none"`: 矢印なし。`"both"`: 両端に矢印 |
+| `style_overrides` | object | ❌ | CSS に相当する詳細スタイル指定。[style_overrides](#style_overrides) 参照 |
 
 #### `groups[]` — グループ（境界コンテナ）
 
@@ -104,6 +106,7 @@ npm run build
 | `label` | string | ✅ | 表示ラベル |
 | `children` | string[] | ✅ | グループに含めるノード ID またはグループ ID |
 | `style` | string | ❌ | グループの色。名前指定: `"blue"` `"orange"` `"red"` `"green"` `"purple"` `"gray"`。カスタム: `"#RRGGBB"`。デフォルト: `"green"` |
+| `style_overrides` | object | ❌ | CSS に相当する詳細スタイル指定。[style_overrides](#style_overrides) 参照 |
 
 #### `layout` — レイアウト設定（オプション）
 
@@ -159,6 +162,101 @@ npm run build
 - **draw.io が担う**: 生成後のノード位置の微調整
 
 生成した `.drawio.svg` を draw.io または VS Code draw.io 拡張で開き、ノードをドラッグして位置を調整すると、ファイルは draw.io ダイアグラムとしても SVG としても引き続き有効なまま保たれる。
+
+---
+
+## style_overrides
+
+各要素（nodes / edges / groups）に対して CSS に相当する詳細スタイルを個別指定できるオブジェクト。`highlight` や `style` よりも優先される。
+
+### NodeStyleOverrides — ノード（矩形・アイコン共通）
+
+| プロパティ | 型 | デフォルト | CSS 類比 | 説明 |
+|---|---|---|---|---|
+| `fill_color` | string | `#f5f5f5` | `background-color` | 背景色。`"none"` で透明。アイコンノードでは無効 |
+| `stroke_color` | string | `#666666` | `border-color` | 枠線の色。`"none"` で非表示 |
+| `stroke_width` | number | `1` | `border-width` | 枠線の太さ px（1–10） |
+| `stroke_dashed` | boolean | `false` | `border-style: dashed` | 破線枠線 |
+| `font_color` | string | `#333333` | `color` | ラベルの文字色 |
+| `font_size` | number | `11` | `font-size` | ラベルのフォントサイズ pt（8–72） |
+| `font_bold` | boolean | `false` | `font-weight: bold` | 太字 |
+| `font_italic` | boolean | `false` | `font-style: italic` | 斜体 |
+| `font_underline` | boolean | `false` | `text-decoration: underline` | 下線 |
+| `font_strikethrough` | boolean | `false` | `text-decoration: line-through` | 打ち消し線 |
+| `opacity` | number | `100` | `opacity × 100` | 不透明度（0–100）。0=不可視、100=不透明 |
+| `rounded` | boolean | `true` | `border-radius > 0` | 角丸。矩形ノードのみ有効 |
+| `shadow` | boolean | `false` | `box-shadow` | ドロップシャドウ |
+| `text_align` | `"left"` \| `"center"` \| `"right"` | `"center"` | `text-align` | 水平方向テキスト配置。矩形ノードのみ有効 |
+| `text_vertical_align` | `"top"` \| `"middle"` \| `"bottom"` | `"middle"` | `vertical-align` | 垂直方向テキスト配置。矩形ノードのみ有効 |
+
+### EdgeStyleOverrides — エッジ（接続線）
+
+| プロパティ | 型 | デフォルト | CSS 類比 | 説明 |
+|---|---|---|---|---|
+| `stroke_color` | string | `#000000` | `border-color` | 線の色 |
+| `stroke_width` | number | `1` | `border-width` | 線の太さ px（1–10） |
+| `stroke_dashed` | boolean | `false` | `border-style: dashed` | 破線。`style: "dashed"` より優先 |
+| `font_color` | string | `#333333` | `color` | エッジラベルの文字色 |
+| `font_size` | number | `11` | `font-size` | エッジラベルのフォントサイズ pt（8–72） |
+| `font_bold` | boolean | `false` | `font-weight: bold` | 太字 |
+| `font_italic` | boolean | `false` | `font-style: italic` | 斜体 |
+| `font_underline` | boolean | `false` | `text-decoration: underline` | 下線 |
+| `opacity` | number | `100` | `opacity × 100` | 不透明度（0–100） |
+
+### GroupStyleOverrides — グループ（境界コンテナ）
+
+| プロパティ | 型 | デフォルト | CSS 類比 | 説明 |
+|---|---|---|---|---|
+| `fill_color` | string | パレット依存 | `background-color` | グループ背景色。`"none"` で透明 |
+| `stroke_color` | string | パレット依存 | `border-color` | グループ枠線の色 |
+| `stroke_width` | number | `1` | `border-width` | 枠線の太さ px（1–10） |
+| `stroke_dashed` | boolean | `false` | `border-style: dashed` | 破線枠線 |
+| `rounded` | boolean | `true` | `border-radius > 0` | 角丸 |
+| `corner_radius` | number | `7` | `border-radius %` | 角丸の大きさ（0–50）。辺の長さに対する % に相当 |
+| `font_color` | string | パレット依存 | `color` | ラベルの文字色 |
+| `font_size` | number | `11` | `font-size` | ラベルのフォントサイズ pt（8–72） |
+| `font_bold` | boolean | `true` | `font-weight: bold` | 太字（グループはデフォルト true） |
+| `font_italic` | boolean | `false` | `font-style: italic` | 斜体 |
+| `font_underline` | boolean | `false` | `text-decoration: underline` | 下線 |
+| `opacity` | number | `100` | `opacity × 100` | 不透明度（0–100） |
+| `text_align` | `"left"` \| `"center"` \| `"right"` | `"left"` | `text-align` | 水平方向テキスト配置 |
+| `text_vertical_align` | `"top"` \| `"middle"` \| `"bottom"` | `"top"` | `vertical-align` | 垂直方向テキスト配置 |
+| `shadow` | boolean | `false` | `box-shadow` | ドロップシャドウ |
+
+### 使用例
+
+```json
+{
+  "nodes": [
+    {
+      "id": "server", "label": "Server",
+      "style_overrides": {
+        "fill_color": "#ffebee", "stroke_color": "#c62828", "stroke_width": 2,
+        "font_bold": true, "font_size": 13, "shadow": true, "opacity": 90
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "client", "target": "server",
+      "style_overrides": {
+        "stroke_color": "#e53935", "stroke_width": 2,
+        "stroke_dashed": true, "opacity": 75
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "backend", "label": "Backend", "children": ["server"],
+      "style_overrides": {
+        "fill_color": "#fff9c4", "stroke_color": "#f9a825",
+        "stroke_dashed": true, "rounded": false,
+        "font_bold": false, "font_italic": true, "font_size": 12
+      }
+    }
+  ]
+}
+```
 
 ---
 
@@ -301,13 +399,22 @@ AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.
 ```json
 {
   "nodes": [
-    { "id": "postgresql", "label": "PostgreSQL", "has_icon": true, "x_hint": 120, "y_hint": 40 }
+    {
+      "id": "postgresql", "label": "PostgreSQL", "has_icon": true, "x_hint": 120, "y_hint": 40,
+      "style_overrides": { "stroke_color": "#c62828", "stroke_width": 2 }
+    }
   ],
   "edges": [
-    { "source": "api", "target": "postgresql", "style": "dashed", "connector": "orthogonal" }
+    {
+      "source": "api", "target": "postgresql", "style": "dashed", "connector": "orthogonal",
+      "style_overrides": { "stroke_color": "#e53935", "opacity": 70 }
+    }
   ],
   "groups": [
-    { "id": "backend", "label": "Backend", "children": ["api", "postgresql"], "style": "blue" }
+    {
+      "id": "backend", "label": "Backend", "children": ["api", "postgresql"], "style": "blue",
+      "style_overrides": { "stroke_dashed": true, "font_italic": true }
+    }
   ],
   "layout": { "direction": "RIGHT", "spacing": 60 },
   "output_path": "/path/to/diagram.drawio.svg"
@@ -317,6 +424,7 @@ AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.
 - **`nodes[].id`**: ラベルのスラッグから合成（例: `"PostgreSQL"` → `"postgresql"`）。`edit_drawio_svg` でノードを参照するときに使用する。
 - **`nodes[].has_icon`**: アイコンが埋め込まれているかどうか。実際のアイコンデータは含まれない（`edit_drawio_svg` が自動保持するため不要）。
 - **`nodes[].x_hint` / `y_hint`**: 既存のノード座標。`create_drawio_svg` に渡すと元のレイアウトに近い配置で再生成できる。
+- **`nodes[].style_overrides` / `edges[].style_overrides` / `groups[].style_overrides`**: 各要素に設定された CSS 相当スタイル。デフォルト値と同じ場合は省略される。`edit_drawio_svg` の `update_nodes` / `update_edges` / `update_groups` に渡すことでスタイルを保持・選択的に上書きできる（完全ラウンドトリップ）。
 - **`layout`**: 本ツールで生成したファイルには保存されている。未保存の場合はデフォルト値（`direction: RIGHT, spacing: 60`）。
 
 ---
@@ -337,14 +445,15 @@ draw.io デスクトップアプリで作成・保存したファイル（手書
 |---|---|---|---|
 | `file_path` | string | ✅ | 編集する `.drawio.svg` ファイルの絶対パス |
 | `layout_mode` | `"preserve"` \| `"recompute"` | ❌ | レイアウトモード。`"preserve"`（デフォルト）: 既存位置を保持し新規要素のみ外側に配置。`"recompute"`: ELK で全体再計算 |
-| `add_nodes` | array | ❌ | 追加するノード（`id`, `label`, `icon_path?`, `highlight?`, `layer_hint?`） |
+| `add_nodes` | array | ❌ | 追加するノード（`id`, `label`, `icon_path?`, `highlight?`, `layer_hint?`, `style_overrides?`） |
 | `remove_nodes` | string[] | ❌ | 削除するノードの ID リスト（接続エッジも自動削除） |
-| `update_nodes` | array | ❌ | 更新するノード（`id` 必須、`label?`, `highlight?`, `icon_path?`） |
-| `add_edges` | array | ❌ | 追加するエッジ（`source`, `target`, `label?`, `style?`, `connector?`, `arrow?`） |
+| `update_nodes` | array | ❌ | 更新するノード（`id` 必須、`label?`, `highlight?`, `icon_path?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
+| `add_edges` | array | ❌ | 追加するエッジ（`source`, `target`, `label?`, `style?`, `connector?`, `arrow?`, `style_overrides?`） |
 | `remove_edges` | array | ❌ | 削除するエッジ（`{ source, target }` で指定） |
-| `add_groups` | array | ❌ | 追加するグループ（`id`, `label`, `children`, `style?`） |
+| `update_edges` | array | ❌ | 更新するエッジ（`source`, `target` 必須、`label?`, `style?`, `connector?`, `arrow?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ |
+| `add_groups` | array | ❌ | 追加するグループ（`id`, `label`, `children`, `style?`, `style_overrides?`） |
 | `remove_groups` | string[] | ❌ | 削除するグループの ID リスト（子ノードはトップレベルに昇格） |
-| `update_groups` | array | ❌ | 更新するグループ（`id` 必須、`label?`, `style?`, `children?`） |
+| `update_groups` | array | ❌ | 更新するグループ（`id` 必須、`label?`, `style?`, `children?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
 | `layout` | object | ❌ | レイアウト設定の上書き（`direction?`, `spacing?`, `group_direction?`, `algorithm?`）。省略時は元のファイルの設定を引き継ぐ |
 
 ### アイコンの扱い

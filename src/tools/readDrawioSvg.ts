@@ -1,4 +1,5 @@
 import { parseDrawioSvgFile, type DiagramSpec } from '../parser/mxGraphModelParser.js';
+import type { NodeStyleOverrides } from '../layout/elkLayout.js';
 
 export const READ_DRAWIO_SVG_TOOL = {
   name: 'read_drawio_svg',
@@ -10,8 +11,12 @@ export const READ_DRAWIO_SVG_TOOL = {
     '  nodes[].label: component names; ' +
     '  edges[].source / .target / .label: connectivity and protocol; ' +
     '  groups[].label / .children: logical boundaries (VNet, resource group, etc.). ' +
+    'Visual styles are returned as style_overrides on each element ' +
+    '(e.g. nodes[].style_overrides.fill_color, edges[].style_overrides.stroke_color, groups[].style_overrides.font_size). ' +
+    'These CSS-equivalent properties (fill_color=background-color, stroke_width=border-width, font_bold=font-weight:bold, opacity=opacity, etc.) ' +
+    'enable full round-trip: read style_overrides → pass them back to edit_drawio_svg to preserve or modify styling. ' +
     'Typical workflows: ' +
-    '(1) read_drawio_svg → edit_drawio_svg: targeted add/remove/update; node icons are preserved automatically. ' +
+    '(1) read_drawio_svg → edit_drawio_svg: targeted add/remove/update; node icons and styles are preserved automatically. ' +
     '(2) read_drawio_svg → create_drawio_svg: full rebuild; icons are NOT carried over from the file, specify them via icon_path or icon_data_uri. ' +
     'Node IDs are synthesized from label slugs (e.g. "PostgreSQL" → "postgresql"). ' +
     'Icon data is NOT included in the response (use has_icon flag to see which nodes have icons). ' +
@@ -39,6 +44,7 @@ export interface ReadDrawioSvgNodeOutput {
   highlight?: string;
   x_hint?: number;
   y_hint?: number;
+  style_overrides?: NodeStyleOverrides;
 }
 
 export interface ReadDrawioSvgOutput {
@@ -61,6 +67,7 @@ export async function handleReadDrawioSvg(input: ReadDrawioSvgInput): Promise<st
       highlight: n.highlight,
       x_hint: n.x_hint,
       y_hint: n.y_hint,
+      style_overrides: n.style_overrides,
     })),
     edges: spec.edges,
     groups: spec.groups,

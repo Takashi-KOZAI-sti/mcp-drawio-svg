@@ -27,8 +27,8 @@ import { parseDrawioSvgContent } from '../parser/mxGraphModelParser.js';
 import { resolveIcons, type InputNodeWithHighlight } from './createDrawioSvg.js';
 import { buildPreservedLayoutResult } from '../layout/preservedLayout.js';
 import { generateSvgVisual } from '../generator/svgRenderer.js';
-import { buildGroupStyle } from '../generator/mxGraphModel.js';
-import type { InputEdge } from '../layout/elkLayout.js';
+import { buildGroupStyle, buildNodeStyle, buildEdgeStyle } from '../generator/mxGraphModel.js';
+import type { InputEdge, NodeStyleOverrides, GroupStyleOverrides, EdgeStyleOverrides } from '../layout/elkLayout.js';
 import { buildBoundsMap, computeEdgePoints, type Rect } from '../generator/edgeLayout.js';
 import type { LayoutResult, LayoutNode, LayoutGroup } from '../layout/elkLayout.js';
 
@@ -119,9 +119,10 @@ function extractFormatBMxXml(rawSvgContent: string): FormatBParts {
   if (!dm) throw new Error('No <diagram> element found in mxfile content');
 
   const base64Data = dm[2].trim();
-  const compressed = Buffer.from(base64Data, 'base64');
-  const decompressed = zlib.inflateRawSync(compressed).toString('utf-8');
-  const mxXml = decodeURIComponent(decompressed);
+  // Some draw.io versions embed the XML directly (uncompressed) inside <diagram>
+  const mxXml = base64Data.startsWith('<mxGraphModel')
+    ? base64Data
+    : decodeURIComponent(zlib.inflateRawSync(Buffer.from(base64Data, 'base64')).toString('utf-8'));
 
   const diagTagEnd = decoded.indexOf(dm[1]) + dm[1].length;
   const diagContentEnd = diagTagEnd + dm[2].length;
@@ -261,58 +262,148 @@ function computeBbox(cells: RawCell[], absCoords: Map<string, { x: number; y: nu
 
 // ─── Style builders ───────────────────────────────────────────────────────────
 
-function resolveColor(color: string): string {
-  switch (color.toLowerCase()) {
-    case 'red':    return '#C62828';
-    case 'yellow': return '#F9A825';
-    case 'blue':   return '#0078D4';
-    case 'orange': return '#E47911';
-    case 'green':  return '#2E7D32';
-    case 'purple': return '#6A1B9A';
+/**
+ * Merge style_overrides into an existing drawio style string.
+ * Reads the current key=value pairs and applies overrides on top.
+ */
+function mergeNodeStyleOverrides(existingStyle: string, so: NodeStyleOverrides): string {
+  const parts = existingStyle.split(';').filter((p) => p.trim());
+  const map = new Map<string, string>();
+  const order: string[] = [];
+  for (const part of parts) {
+    const eq = part.indexOf('=');
+    if (eq === -1) {
+      map.set(part, '');
+      order.push(part);
+    } else {
+      const k = part.slice(0, eq);
+      map.set(k, part.slice(eq + 1));
+      order.push(k);
+    }
   }
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
-  return '#666666';
+
+  function set(k: string, v: string): void {
+    if (!map.has(k)) order.push(k);
+    map.set(k, v);
+  }
+  function del(k: string): void { map.delete(k); }
+
+  if (so.fill_color !== undefined) set('fillColor', so.fill_color);
+  if (so.stroke_color !== undefined) set('strokeColor', so.stroke_color);
+  if (so.stroke_width !== undefined) set('strokeWidth', String(so.stroke_width));
+  if (so.stroke_dashed !== undefined) { if (so.stroke_dashed) set('dashed', '1'); else del('dashed'); }
+  if (so.font_color !== undefined) set('fontColor', so.font_color);
+  if (so.font_size !== undefined) set('fontSize', String(so.font_size));
+
+  // fontStyle bitmask: merge with existing
+  let fontBits = parseInt(map.get('fontStyle') ?? '0') || 0;
+  if (so.font_bold !== undefined) { if (so.font_bold) fontBits |= 1; else fontBits &= ~1; }
+  if (so.font_italic !== undefined) { if (so.font_italic) fontBits |= 2; else fontBits &= ~2; }
+  if (so.font_underline !== undefined) { if (so.font_underline) fontBits |= 4; else fontBits &= ~4; }
+  if (so.font_strikethrough !== undefined) { if (so.font_strikethrough) fontBits |= 8; else fontBits &= ~8; }
+  if (fontBits > 0) set('fontStyle', String(fontBits)); else del('fontStyle');
+
+  if (so.opacity !== undefined) { if (so.opacity !== 100) set('opacity', String(so.opacity)); else del('opacity'); }
+  if (so.rounded !== undefined) set('rounded', so.rounded ? '1' : '0');
+  if (so.shadow !== undefined) { if (so.shadow) set('shadow', '1'); else del('shadow'); }
+  if (so.text_align !== undefined) set('align', so.text_align);
+  if (so.text_vertical_align !== undefined) set('verticalAlign', so.text_vertical_align);
+
+  return order.filter((k) => map.has(k)).map((k) => map.get(k) ? `${k}=${map.get(k)}` : k).join(';') + ';';
 }
 
-function resolveColorLight(color: string): string {
-  switch (color.toLowerCase()) {
-    case 'red':    return '#FFEBEE';
-    case 'yellow': return '#FFFDE7';
-    case 'blue':   return '#E3F2FD';
-    case 'orange': return '#FFF3E0';
-    case 'green':  return '#E8F5E9';
-    case 'purple': return '#F3E5F5';
+function mergeGroupStyleOverrides(existingStyle: string, so: GroupStyleOverrides): string {
+  const parts = existingStyle.split(';').filter((p) => p.trim());
+  const map = new Map<string, string>();
+  const order: string[] = [];
+  for (const part of parts) {
+    const eq = part.indexOf('=');
+    if (eq === -1) { map.set(part, ''); order.push(part); }
+    else { const k = part.slice(0, eq); map.set(k, part.slice(eq + 1)); order.push(k); }
   }
-  return '#f5f5f5';
+
+  function set(k: string, v: string): void { if (!map.has(k)) order.push(k); map.set(k, v); }
+  function del(k: string): void { map.delete(k); }
+
+  if (so.fill_color !== undefined) set('fillColor', so.fill_color);
+  if (so.stroke_color !== undefined) set('strokeColor', so.stroke_color);
+  if (so.stroke_width !== undefined) set('strokeWidth', String(so.stroke_width));
+  if (so.stroke_dashed !== undefined) { if (so.stroke_dashed) set('dashed', '1'); else del('dashed'); }
+  if (so.rounded !== undefined) set('rounded', so.rounded ? '1' : '0');
+  if (so.corner_radius !== undefined) set('arcSize', String(so.corner_radius));
+  if (so.font_color !== undefined) set('fontColor', so.font_color);
+  if (so.font_size !== undefined) set('fontSize', String(so.font_size));
+  let fontBits = parseInt(map.get('fontStyle') ?? '1') || 1; // groups default bold
+  if (so.font_bold !== undefined) { if (so.font_bold) fontBits |= 1; else fontBits &= ~1; }
+  if (so.font_italic !== undefined) { if (so.font_italic) fontBits |= 2; else fontBits &= ~2; }
+  if (so.font_underline !== undefined) { if (so.font_underline) fontBits |= 4; else fontBits &= ~4; }
+  set('fontStyle', String(fontBits));
+  if (so.opacity !== undefined) { if (so.opacity !== 100) set('opacity', String(so.opacity)); else del('opacity'); }
+  if (so.text_align !== undefined) set('align', so.text_align);
+  if (so.text_vertical_align !== undefined) set('verticalAlign', so.text_vertical_align);
+  if (so.shadow !== undefined) { if (so.shadow) set('shadow', '1'); else del('shadow'); }
+
+  return order.filter((k) => map.has(k)).map((k) => map.get(k) ? `${k}=${map.get(k)}` : k).join(';') + ';';
 }
 
-function buildNodeStyleStr(drawioDataUri?: string, highlight?: string | null): string {
-  const h = highlight ?? undefined;
-  const strokeColor = h ? resolveColor(h) : undefined;
-  if (drawioDataUri) {
-    const strokePart = strokeColor ? `strokeColor=${strokeColor};strokeWidth=3;` : 'strokeColor=none;';
-    return `shape=image;verticalLabelPosition=bottom;verticalAlign=top;align=center;${strokePart}fillColor=none;aspect=fixed;image=${drawioDataUri};`;
+function mergeEdgeUpdates(existingStyle: string, upd: {
+  style?: 'solid' | 'dashed';
+  connector?: 'straight' | 'orthogonal' | 'elbow-h' | 'elbow-v';
+  arrow?: 'default' | 'none' | 'both';
+  style_overrides?: EdgeStyleOverrides;
+}): string {
+  const parts = existingStyle.split(';').filter((p) => p.trim());
+  const map = new Map<string, string>();
+  const order: string[] = [];
+  for (const part of parts) {
+    const eq = part.indexOf('=');
+    if (eq === -1) { map.set(part, ''); order.push(part); }
+    else { const k = part.slice(0, eq); map.set(k, part.slice(eq + 1)); order.push(k); }
   }
-  const fill = h ? resolveColorLight(h) : '#f5f5f5';
-  const stroke = strokeColor ?? '#666666';
-  return `rounded=1;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};`;
-}
 
-function buildEdgeStyleStr(edge: InputEdge, pts: { exitX: number; exitY: number; entryX: number; entryY: number }): string {
-  const connector = edge.connector ?? 'orthogonal';
-  const connPart =
-    connector === 'straight' ? '' :
-    connector === 'elbow-h'  ? 'edgeStyle=elbowEdgeStyle;elbow=horizontal;' :
-    connector === 'elbow-v'  ? 'edgeStyle=elbowEdgeStyle;elbow=vertical;' :
-    'edgeStyle=orthogonalEdgeStyle;';
-  const dash = edge.style === 'dashed' ? 'dashed=1;' : '';
-  const exit = `exitX=${pts.exitX};exitY=${pts.exitY};exitDx=0;exitDy=0;`;
-  const entry = `entryX=${pts.entryX};entryY=${pts.entryY};entryDx=0;entryDy=0;`;
-  const arrow =
-    edge.arrow === 'none' ? 'endArrow=none;' :
-    edge.arrow === 'both' ? 'startArrow=block;startFill=1;endArrow=block;endFill=1;' :
-    'endArrow=block;endFill=1;';
-  return `${connPart}${exit}${entry}rounded=1;orthogonalLoop=1;jettySize=auto;${dash}${arrow}`;
+  function set(k: string, v: string): void { if (!map.has(k)) order.push(k); map.set(k, v); }
+  function del(k: string): void { map.delete(k); }
+
+  // High-level style (solid/dashed)
+  if (upd.style === 'dashed') set('dashed', '1');
+  else if (upd.style === 'solid') del('dashed');
+
+  // Connector (edgeStyle)
+  if (upd.connector !== undefined) {
+    switch (upd.connector) {
+      case 'orthogonal': set('edgeStyle', 'orthogonalEdgeStyle'); del('elbow'); break;
+      case 'straight':   del('edgeStyle'); del('elbow'); break;
+      case 'elbow-h':    set('edgeStyle', 'elbowEdgeStyle'); set('elbow', 'horizontal'); break;
+      case 'elbow-v':    set('edgeStyle', 'elbowEdgeStyle'); set('elbow', 'vertical'); break;
+    }
+  }
+
+  // Arrow (startArrow / endArrow)
+  if (upd.arrow !== undefined) {
+    switch (upd.arrow) {
+      case 'none':    set('endArrow', 'none'); set('startArrow', 'none'); break;
+      case 'both':    del('endArrow'); set('startArrow', 'block'); break;
+      case 'default': del('endArrow'); del('startArrow'); break;
+    }
+  }
+
+  // style_overrides (fine-grained CSS-equivalent properties)
+  const so = upd.style_overrides;
+  if (so) {
+    if (so.stroke_color !== undefined) set('strokeColor', so.stroke_color);
+    if (so.stroke_width !== undefined) set('strokeWidth', String(so.stroke_width));
+    if (so.stroke_dashed !== undefined) { if (so.stroke_dashed) set('dashed', '1'); else del('dashed'); }
+    if (so.font_color !== undefined) set('fontColor', so.font_color);
+    if (so.font_size !== undefined) set('fontSize', String(so.font_size));
+    let fontBits = parseInt(map.get('fontStyle') ?? '0') || 0;
+    if (so.font_bold !== undefined) { if (so.font_bold) fontBits |= 1; else fontBits &= ~1; }
+    if (so.font_italic !== undefined) { if (so.font_italic) fontBits |= 2; else fontBits &= ~2; }
+    if (so.font_underline !== undefined) { if (so.font_underline) fontBits |= 4; else fontBits &= ~4; }
+    if (fontBits > 0) set('fontStyle', String(fontBits)); else del('fontStyle');
+    if (so.opacity !== undefined) { if (so.opacity !== 100) set('opacity', String(so.opacity)); else del('opacity'); }
+  }
+
+  return order.filter((k) => map.has(k)).map((k) => map.get(k) ? `${k}=${map.get(k)}` : k).join(';') + ';';
 }
 
 // ─── Main surgical edit function ───────────────────────────────────────────────
@@ -359,6 +450,7 @@ export async function surgicallyEditFormatB(
     y_geom: n.y_geom,
     width: n.width,
     height: n.height,
+    style_overrides: n.style_overrides,
   }));
   const layoutResult = buildPreservedLayoutResult(
     nodesForLayout,
@@ -384,6 +476,7 @@ export async function surgicallyEditFormatB(
 interface NewNodeIconData {
   drawioDataUri?: string;
   highlight?: string | null;
+  style_overrides?: import('../layout/elkLayout.js').NodeStyleOverrides;
 }
 
 async function resolveNewNodeIcons(
@@ -396,12 +489,14 @@ async function resolveNewNodeIcons(
     icon_path: n.icon_path ?? undefined,
     icon_data_uri: n.icon_data_uri,
     highlight: n.highlight ?? null,
+    style_overrides: n.style_overrides,
   }));
   const { icons, highlights } = await resolveIcons(nodesForResolve);
   for (const n of addNodes) {
     result.set(n.id, {
       drawioDataUri: icons[n.id]?.drawioDataUri,
       highlight: highlights[n.id] ?? n.highlight ?? null,
+      style_overrides: n.style_overrides,
     });
   }
   return result;
@@ -446,21 +541,52 @@ function applyChanges(
   }
 
   // ── Update map ──
-  const updateMap = new Map<string, { value?: string; style?: string }>();
+  // style can be a full new style string, or a style_overrides merger function
+  const updateMap = new Map<string, {
+    value?: string;
+    style?: string;
+    styleOverridesFn?: (existing: string) => string;
+  }>();
   for (const upd of input.update_nodes ?? []) {
     const numId = logicalToNumeric.get(upd.id);
     if (!numId) continue;
-    const entry: { value?: string; style?: string } = {};
+    const entry: { value?: string; style?: string; styleOverridesFn?: (s: string) => string } = {};
     if (upd.label !== undefined) entry.value = upd.label;
+    if (upd.style_overrides !== undefined) {
+      const so = upd.style_overrides;
+      entry.styleOverridesFn = (existing: string) => mergeNodeStyleOverrides(existing, so);
+    }
     updateMap.set(numId, entry);
   }
   for (const upd of input.update_groups ?? []) {
     const numId = logicalToNumeric.get(upd.id);
     if (!numId) continue;
-    const entry: { value?: string; style?: string } = {};
+    const entry: { value?: string; style?: string; styleOverridesFn?: (s: string) => string } = {};
     if (upd.label !== undefined) entry.value = upd.label;
-    if (upd.style !== undefined) entry.style = buildGroupStyle(upd.style);
+    if (upd.style !== undefined) entry.style = buildGroupStyle(upd.style, upd.style_overrides);
+    else if (upd.style_overrides !== undefined) {
+      const so = upd.style_overrides;
+      entry.styleOverridesFn = (existing: string) => mergeGroupStyleOverrides(existing, so);
+    }
     updateMap.set(numId, entry);
+  }
+
+  // ── Edge update map (keyed by "numericSrc::numericTgt") ──
+  const updateEdgeMap = new Map<string, {
+    value?: string;
+    styleFn?: (existing: string) => string;
+  }>();
+  for (const upd of input.update_edges ?? []) {
+    const s = logicalToNumeric.get(upd.source) ?? upd.source;
+    const t = logicalToNumeric.get(upd.target) ?? upd.target;
+    const entry: { value?: string; styleFn?: (existing: string) => string } = {};
+    if (upd.label !== undefined) entry.value = upd.label;
+    if (upd.style !== undefined || upd.connector !== undefined ||
+        upd.arrow !== undefined || upd.style_overrides !== undefined) {
+      const captured = upd;
+      entry.styleFn = (existing: string) => mergeEdgeUpdates(existing, captured);
+    }
+    updateEdgeMap.set(`${s}::${t}`, entry);
   }
 
   // ── IDs of nodes being moved into a new group ──
@@ -488,7 +614,7 @@ function applyChanges(
       match = match.replace(`parent="${par}"`, `parent="${groupParentMap.get(par)}"`);
     }
 
-    // Apply value / style updates
+    // Apply value / style updates (nodes and groups)
     if (id) {
       const upd = updateMap.get(id);
       if (upd?.value !== undefined) {
@@ -496,6 +622,30 @@ function applyChanges(
       }
       if (upd?.style !== undefined) {
         match = match.replace(/\bstyle="[^"]*"/, `style="${upd.style}"`);
+      } else if (upd?.styleOverridesFn) {
+        // Merge style_overrides into the existing style string
+        const existingStyleMatch = match.match(/\bstyle="([^"]*)"/);
+        if (existingStyleMatch) {
+          const newStyle = upd.styleOverridesFn(existingStyleMatch[1]);
+          match = match.replace(/\bstyle="[^"]*"/, `style="${newStyle}"`);
+        }
+      }
+    }
+
+    // Apply edge updates (identified by source::target pair)
+    if (src && tgt) {
+      const edgeUpd = updateEdgeMap.get(`${src}::${tgt}`);
+      if (edgeUpd) {
+        if (edgeUpd.value !== undefined) {
+          match = match.replace(/\bvalue="[^"]*"/, `value="${valueToXmlAttr(edgeUpd.value)}"`);
+        }
+        if (edgeUpd.styleFn) {
+          const existingStyleMatch = match.match(/\bstyle="([^"]*)"/);
+          if (existingStyleMatch) {
+            const newStyle = edgeUpd.styleFn(existingStyleMatch[1]);
+            match = match.replace(/\bstyle="[^"]*"/, `style="${newStyle}"`);
+          }
+        }
       }
     }
 
@@ -515,7 +665,7 @@ function applyChanges(
     const numId = String(nextId++);
     newIdMap.set(n.id, numId);
     const iconData = newNodeIconMap.get(n.id);
-    const style = buildNodeStyleStr(iconData?.drawioDataUri, iconData?.highlight ?? n.highlight);
+    const style = buildNodeStyle(iconData?.drawioDataUri, iconData?.highlight ?? n.highlight ?? undefined, iconData?.style_overrides);
     newCells.push(
       `<mxCell id="${numId}" value="${valueToXmlAttr(n.label)}" ` +
       `style="${style}" vertex="1" parent="1">` +
@@ -612,7 +762,7 @@ function applyChanges(
       const childNumId = String(nextId++);
       newIdMap.set(n.id, childNumId);
       const iconData = newNodeIconMap.get(n.id);
-      const style = buildNodeStyleStr(iconData?.drawioDataUri, iconData?.highlight ?? n.highlight);
+      const style = buildNodeStyle(iconData?.drawioDataUri, iconData?.highlight ?? n.highlight ?? undefined, iconData?.style_overrides);
       newCells.push(
         `<mxCell id="${childNumId}" value="${valueToXmlAttr(n.label)}" ` +
         `style="${style}" vertex="1" parent="${groupNumId}">` +
@@ -645,8 +795,8 @@ function applyChanges(
       const e = newEdges[i];
       const pts = edgePts[i];
       if (!pts) continue;
-      const edgeStyle = buildEdgeStyleStr(
-        { source: e.sourceNumId, target: e.targetNumId, label: e.label, style: e.style, connector: e.connector, arrow: e.arrow },
+      const edgeStyle = buildEdgeStyle(
+        { source: e.sourceNumId, target: e.targetNumId, label: e.label, style: e.style, connector: e.connector, arrow: e.arrow, style_overrides: e.style_overrides },
         pts,
       );
       const edgeNumId = String(nextId++);
@@ -730,6 +880,7 @@ interface NewEdge {
   style?: 'solid' | 'dashed';
   connector?: 'straight' | 'orthogonal' | 'elbow-h' | 'elbow-v';
   arrow?: 'default' | 'none' | 'both';
+  style_overrides?: import('../layout/elkLayout.js').EdgeStyleOverrides;
 }
 
 function buildNewEdgesWithNumericIds(
@@ -744,6 +895,7 @@ function buildNewEdgesWithNumericIds(
     style: e.style,
     connector: e.connector,
     arrow: e.arrow,
+    style_overrides: e.style_overrides,
   }));
 }
 
