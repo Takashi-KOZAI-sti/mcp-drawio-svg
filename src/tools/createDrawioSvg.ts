@@ -45,7 +45,7 @@ export const CREATE_DRAWIO_SVG_TOOL = {
         items: {
           type: 'object',
           properties: {
-            id: { type: 'string', description: 'Unique identifier for this node.' },
+            id: { type: 'string', description: 'Temporary ID for this node, used to reference it in edges and groups within this call. Not stored in the file; read_drawio_svg returns draw.io numeric IDs instead.' },
             label: { type: 'string', description: 'Display label for this node.' },
             icon_path: {
               type: 'string',
@@ -129,12 +129,12 @@ export const CREATE_DRAWIO_SVG_TOOL = {
         items: {
           type: 'object',
           properties: {
-            id: { type: 'string', description: 'Unique identifier for this group.' },
+            id: { type: 'string', description: 'Temporary ID for this group, used in children references and edges within this call.' },
             label: { type: 'string', description: 'Display label for this group.' },
             children: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Node IDs or group IDs that belong to this group. Groups can be nested by including another group\'s ID here.',
+              description: 'Temporary node/group IDs that belong to this group. Use the same IDs specified in nodes[].id or other groups[].id within this call.',
             },
             style: {
               type: 'string',

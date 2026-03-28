@@ -77,7 +77,7 @@ npm run build
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | ✅ | 一意の識別子 |
+| `id` | string | ✅ | 一時 ID（このリクエスト内でエッジやグループから参照するために使用）。ファイルには保存されず、`read_drawio_svg` では draw.io の数値 ID が返る |
 | `label` | string | ✅ | 表示ラベル |
 | `icon_path` | string | ❌ | ローカルの SVG アイコンファイルへの絶対パス。省略時は `label` をもとに [simple-icons](https://simpleicons.org/) を自動検索 |
 | `highlight` | string | ❌ | ハイライトカラー。名前指定: `"red"` `"yellow"` `"blue"` `"orange"` `"green"` `"purple"`。カスタム: `"#RRGGBB"` |
@@ -88,8 +88,8 @@ npm run build
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | ✅ | 接続元ノード ID |
-| `target` | string | ✅ | 接続先ノード ID |
+| `source` | string | ✅ | 接続元ノードの一時 ID（`nodes[].id` で指定したもの） |
+| `target` | string | ✅ | 接続先ノードの一時 ID |
 | `label` | string | ❌ | エッジ上のラベル |
 | `style` | `"solid"` \| `"dashed"` | ❌ | 線のスタイル（デフォルト: `"solid"`） |
 | `connector` | `"orthogonal"` \| `"elbow-h"` \| `"elbow-v"` \| `"straight"` | ❌ | ルーティングスタイル（デフォルト: `"orthogonal"`）。`"orthogonal"`: 直角自動ルーティング。`"elbow-h"`: 水平優先 L 字。`"elbow-v"`: 垂直優先 L 字。`"straight"`: 直線 |
@@ -102,9 +102,9 @@ npm run build
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | ✅ | 一意の識別子 |
+| `id` | string | ✅ | 一時 ID（このリクエスト内で参照するために使用） |
 | `label` | string | ✅ | 表示ラベル |
-| `children` | string[] | ✅ | グループに含めるノード ID またはグループ ID |
+| `children` | string[] | ✅ | グループに含めるノード/グループの一時 ID（`nodes[].id` や他の `groups[].id` で指定したもの） |
 | `style` | string | ❌ | グループの色。名前指定: `"blue"` `"orange"` `"red"` `"green"` `"purple"` `"gray"`。カスタム: `"#RRGGBB"`。デフォルト: `"green"` |
 | `style_overrides` | object | ❌ | CSS に相当する詳細スタイル指定。[style_overrides](#style_overrides) 参照 |
 
@@ -400,32 +400,40 @@ AI が提案内容をもとに `create_drawio_svg` ツールを呼び出し、`.
 {
   "nodes": [
     {
-      "id": "postgresql", "label": "PostgreSQL", "has_icon": true, "x_hint": 120, "y_hint": 40,
+      "id": "5", "label": "PostgreSQL", "has_icon": true, "x_hint": 120, "y_hint": 40,
       "style_overrides": { "stroke_color": "#c62828", "stroke_width": 2 }
     }
   ],
   "edges": [
     {
-      "source": "api", "target": "postgresql", "style": "dashed", "connector": "orthogonal",
+      "source": "4", "target": "5", "style": "dashed", "connector": "orthogonal",
       "style_overrides": { "stroke_color": "#e53935", "opacity": 70 }
     }
   ],
   "groups": [
     {
-      "id": "backend", "label": "Backend", "children": ["api", "postgresql"], "style": "blue",
+      "id": "3", "label": "Backend", "children": ["4", "5"], "style": "blue",
       "style_overrides": { "stroke_dashed": true, "font_italic": true }
     }
   ],
-  "layout": { "direction": "RIGHT", "spacing": 60 },
-  "output_path": "/path/to/diagram.drawio.svg"
+  "layout": { "direction": "RIGHT", "spacing": 60 }
 }
 ```
 
-- **`nodes[].id`**: ラベルのスラッグから合成（例: `"PostgreSQL"` → `"postgresql"`）。`edit_drawio_svg` でノードを参照するときに使用する。
+- **`nodes[].id` / `groups[].id`**: draw.io 内部の数値 ID（例: `"5"`, `"3"`）。`edit_drawio_svg` の update/remove で要素を指定するときに使用する。preserve モードでの編集では ID は安定しており、連続した read → edit で同じ ID を使える。
 - **`nodes[].has_icon`**: アイコンが埋め込まれているかどうか。実際のアイコンデータは含まれない（`edit_drawio_svg` が自動保持するため不要）。
 - **`nodes[].x_hint` / `y_hint`**: 既存のノード座標。`create_drawio_svg` に渡すと元のレイアウトに近い配置で再生成できる。
 - **`nodes[].style_overrides` / `edges[].style_overrides` / `groups[].style_overrides`**: 各要素に設定された CSS 相当スタイル。デフォルト値と同じ場合は省略される。`edit_drawio_svg` の `update_nodes` / `update_edges` / `update_groups` に渡すことでスタイルを保持・選択的に上書きできる（完全ラウンドトリップ）。
 - **`layout`**: 本ツールで生成したファイルには保存されている。未保存の場合はデフォルト値（`direction: RIGHT, spacing: 60`）。
+
+### ID の仕組み
+
+| 操作 | ID の扱い |
+|---|---|
+| `create_drawio_svg` | ユーザーが一時的な文字列 ID を付与（例: `"web"`, `"db"`）。エッジやグループとのリレーション解決に使用。ファイル保存時に draw.io の数値 ID に変換される |
+| `read_drawio_svg` | draw.io 内部の数値 ID をそのまま返す（例: `"2"`, `"15"`） |
+| `edit_drawio_svg` の update/remove | `read` で取得した数値 ID を指定する |
+| `edit_drawio_svg` の add | 新規要素には一時 ID を付与。`add_edges` の source/target には既存ノードの数値 ID と新規ノードの一時 ID を混在指定可能（例: `source: "15", target: "new_cache"`） |
 
 ---
 
@@ -445,15 +453,15 @@ draw.io デスクトップアプリで作成・保存したファイル（手書
 |---|---|---|---|
 | `file_path` | string | ✅ | 編集する `.drawio.svg` ファイルの絶対パス |
 | `layout_mode` | `"preserve"` \| `"recompute"` | ❌ | レイアウトモード。`"preserve"`（デフォルト）: 既存位置を保持し新規要素のみ外側に配置。`"recompute"`: ELK で全体再計算 |
-| `add_nodes` | array | ❌ | 追加するノード（`id`, `label`, `icon_path?`, `highlight?`, `layer_hint?`, `style_overrides?`） |
-| `remove_nodes` | string[] | ❌ | 削除するノードの ID リスト（接続エッジも自動削除） |
-| `update_nodes` | array | ❌ | 更新するノード（`id` 必須、`label?`, `highlight?`, `icon_path?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
-| `add_edges` | array | ❌ | 追加するエッジ（`source`, `target`, `label?`, `style?`, `connector?`, `arrow?`, `style_overrides?`） |
-| `remove_edges` | array | ❌ | 削除するエッジ（`{ source, target }` で指定） |
-| `update_edges` | array | ❌ | 更新するエッジ（`source`, `target` 必須、`label?`, `style?`, `connector?`, `arrow?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ |
-| `add_groups` | array | ❌ | 追加するグループ（`id`, `label`, `children`, `style?`, `style_overrides?`） |
-| `remove_groups` | string[] | ❌ | 削除するグループの ID リスト（子ノードはトップレベルに昇格） |
-| `update_groups` | array | ❌ | 更新するグループ（`id` 必須、`label?`, `style?`, `children?`, `style_overrides?`）。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
+| `add_nodes` | array | ❌ | 追加するノード。`id` は一時 ID（リレーション用）、`label`, `icon_path?`, `highlight?`, `layer_hint?`, `style_overrides?` |
+| `remove_nodes` | string[] | ❌ | 削除するノードの数値 ID リスト（`read` で取得した ID。接続エッジも自動削除） |
+| `update_nodes` | array | ❌ | 更新するノード。`id` は数値 ID（`read` で取得）、`label?`, `highlight?`, `icon_path?`, `style_overrides?`。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
+| `add_edges` | array | ❌ | 追加するエッジ。`source`/`target` に既存ノードの数値 ID または新規ノードの一時 ID を指定。`label?`, `style?`, `connector?`, `arrow?`, `style_overrides?` |
+| `remove_edges` | array | ❌ | 削除するエッジ。`source`/`target` は数値 ID で指定 |
+| `update_edges` | array | ❌ | 更新するエッジ。`source`/`target` は数値 ID。`label?`, `style?`, `connector?`, `arrow?`, `style_overrides?`。`style_overrides` は既存スタイルとマージ |
+| `add_groups` | array | ❌ | 追加するグループ。`id` は一時 ID、`children` に既存の数値 ID または新規の一時 ID を指定。`label`, `style?`, `style_overrides?` |
+| `remove_groups` | string[] | ❌ | 削除するグループの数値 ID リスト（子ノードはトップレベルに昇格） |
+| `update_groups` | array | ❌ | 更新するグループ。`id` は数値 ID、`label?`, `style?`, `children?`, `style_overrides?`。`style_overrides` は既存スタイルとマージ（未指定プロパティは保持） |
 | `layout` | object | ❌ | レイアウト設定の上書き（`direction?`, `spacing?`, `group_direction?`, `algorithm?`）。省略時は元のファイルの設定を引き継ぐ |
 
 ### アイコンの扱い
@@ -465,12 +473,14 @@ draw.io デスクトップアプリで作成・保存したファイル（手書
 ```json
 {
   "file_path": "/path/to/diagram.drawio.svg",
-  "add_nodes": [{ "id": "redis", "label": "Redis" }],
-  "add_edges": [{ "source": "api", "target": "redis" }],
-  "update_nodes": [{ "id": "postgresql", "highlight": "blue" }],
-  "remove_nodes": ["legacy_service"]
+  "add_nodes": [{ "id": "new_cache", "label": "Redis" }],
+  "add_edges": [{ "source": "4", "target": "new_cache" }],
+  "update_nodes": [{ "id": "5", "highlight": "blue" }],
+  "remove_nodes": ["8"]
 }
 ```
+
+> `add_nodes` の `id: "new_cache"` は一時 ID。`add_edges` の `source: "4"` は既存ノードの数値 ID（`read` で取得）、`target: "new_cache"` は同じリクエスト内の新規ノードの一時 ID。`update_nodes` と `remove_nodes` は数値 ID を使用。
 
 ---
 
