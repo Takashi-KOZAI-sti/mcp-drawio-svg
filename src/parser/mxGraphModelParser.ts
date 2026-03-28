@@ -2,7 +2,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import type { LayoutOptions, NodeStyleOverrides, EdgeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
 import { htmlDecode } from '../utils/xmlEncoding.js';
-import { extractAttr, extractGeometry, slugify, computeAbsCoords } from '../utils/mxCellUtils.js';
+import { extractAttr, extractGeometry, computeAbsCoords } from '../utils/mxCellUtils.js';
 import { parseStyleMap } from '../utils/styleMerging.js';
 
 export interface ParsedNode {
@@ -105,28 +105,11 @@ export function parseDrawioSvgFile(filePath: string): DiagramSpec {
   return parseDrawioSvgContent(content, filePath);
 }
 
-export function parseDrawioSvgContent(
-  svgContent: string,
-  filePath: string,
-  preservedIdMap?: Map<string, string>,
-): DiagramSpec {
+export function parseDrawioSvgContent(svgContent: string, filePath: string): DiagramSpec {
   const mxXml = extractMxGraphModelXml(svgContent);
   const layoutOptions = extractLayoutOptions(svgContent);
   const cells = parseMxCells(mxXml);
-
-  // If no explicit preserved map, check for embedded data-id-map attribute in SVG
-  if (!preservedIdMap) {
-    const idMapMatch = svgContent.match(/\bdata-id-map="([^"]*)"/);
-    if (idMapMatch) {
-      try {
-        const decoded = htmlDecode(idMapMatch[1]);
-        const obj = JSON.parse(decoded) as Record<string, string>;
-        preservedIdMap = new Map(Object.entries(obj));
-      } catch { /* ignore malformed data-id-map */ }
-    }
-  }
-
-  return buildDiagramSpec(cells, layoutOptions, filePath, preservedIdMap);
+  return buildDiagramSpec(cells, layoutOptions, filePath);
 }
 
 // ─── Extract mxGraphModel XML from SVG content attribute ─────────────────────
@@ -231,7 +214,6 @@ function buildDiagramSpec(
   cells: RawCell[],
   layoutOptions: LayoutOptions | undefined,
   filePath: string,
-  preservedIdMap?: Map<string, string>,
 ): DiagramSpec {
   // Determine which numeric IDs are group containers (have at least one child with vertex=1)
   const groupIds = new Set<string>();
@@ -243,7 +225,6 @@ function buildDiagramSpec(
   // Also mark groups that are children of other groups
   for (const c of cells) {
     if (c.isVertex && groupIds.has(c.numericId)) {
-      // already a group — also mark its parent as a group if it's not root
       if (c.parent !== '1' && c.parent !== '0') {
         groupIds.add(c.parent);
       }
@@ -253,53 +234,22 @@ function buildDiagramSpec(
   // Compute absolute coordinates for each vertex cell
   const absCoords = computeAbsCoords(cells, groupIds);
 
-  // Build logical ID map (label-slug → logical id), deduplicating
-  const slugCount = new Map<string, number>();
-  const numericToLogical = new Map<string, string>();
-  // Track logical IDs already claimed by the preserved map to avoid collisions
-  const claimedLogicalIds = new Set<string>(preservedIdMap?.values() ?? []);
+  // Build a set of known vertex numeric IDs for edge validation
+  const vertexIds = new Set(cells.filter((c) => c.isVertex).map((c) => c.numericId));
 
-  const allVertices = cells.filter((c) => c.isVertex);
-  for (const c of allVertices) {
-    // If a preserved mapping exists for this cell, use it directly
-    if (preservedIdMap?.has(c.numericId)) {
-      const logicalId = preservedIdMap.get(c.numericId)!;
-      numericToLogical.set(c.numericId, logicalId);
-      // Still track slug count so fallback IDs don't produce gaps
-      const slug = slugify(c.value || c.numericId);
-      slugCount.set(slug, (slugCount.get(slug) ?? 0) + 1);
-      continue;
-    }
-
-    // Fallback: generate from label with collision avoidance
-    const slug = slugify(c.value || c.numericId);
-    const count = (slugCount.get(slug) ?? 0) + 1;
-    slugCount.set(slug, count);
-    let logicalId = count === 1 ? slug : `${slug}_${count}`;
-    while (claimedLogicalIds.has(logicalId)) {
-      const next = (slugCount.get(slug) ?? 0) + 1;
-      slugCount.set(slug, next);
-      logicalId = `${slug}_${next}`;
-    }
-    numericToLogical.set(c.numericId, logicalId);
-    claimedLogicalIds.add(logicalId);
-  }
-
-  // Classify cells
+  // Classify cells — use draw.io's native numeric IDs directly
   const nodes: ParsedNode[] = [];
   const groups: ParsedGroup[] = [];
   const edges: ParsedEdge[] = [];
 
   for (const c of cells) {
     if (c.isEdge) {
-      const sourceLogical = numericToLogical.get(c.source);
-      const targetLogical = numericToLogical.get(c.target);
-      if (!sourceLogical || !targetLogical) continue; // skip dangling edges
+      if (!vertexIds.has(c.source) || !vertexIds.has(c.target)) continue; // skip dangling edges
       const arrow = classifyArrow(c.style);
       const edgeSo = extractEdgeStyleOverrides(c.style);
       edges.push({
-        source: sourceLogical,
-        target: targetLogical,
+        source: c.source,
+        target: c.target,
         label: c.value || undefined,
         style: c.style.includes('dashed=1') ? 'dashed' : 'solid',
         connector: classifyConnector(c.style),
@@ -308,18 +258,16 @@ function buildDiagramSpec(
         ...(edgeSo ? { style_overrides: edgeSo } : {}),
       });
     } else if (c.isVertex) {
-      const logicalId = numericToLogical.get(c.numericId)!;
       if (groupIds.has(c.numericId)) {
         // Group cell
-        const childrenNumerics = cells
+        const children = cells
           .filter((child) => child.isVertex && child.parent === c.numericId)
-          .map((child) => numericToLogical.get(child.numericId)!)
-          .filter(Boolean);
+          .map((child) => child.numericId);
         const groupSo = extractGroupStyleOverrides(c.style);
         groups.push({
-          id: logicalId,
+          id: c.numericId,
           label: c.value,
-          children: childrenNumerics,
+          children,
           style: classifyGroupStyle(c.style),
           x: c.x,
           y: c.y,
@@ -332,7 +280,7 @@ function buildDiagramSpec(
         const abs = absCoords.get(c.numericId) ?? { x: c.x, y: c.y };
         const isIcon = c.style.includes('shape=image');
         const node: ParsedNode = {
-          id: logicalId,
+          id: c.numericId,
           label: c.value,
           x_hint: abs.x,
           y_hint: abs.y,

@@ -18,7 +18,8 @@ export const READ_DRAWIO_SVG_TOOL = {
     'Typical workflows: ' +
     '(1) read_drawio_svg → edit_drawio_svg: targeted add/remove/update; node icons and styles are preserved automatically. ' +
     '(2) read_drawio_svg → create_drawio_svg: full rebuild; icons are NOT carried over from the file, specify them via icon_path or icon_data_uri. ' +
-    'Node IDs are synthesized from label slugs (e.g. "PostgreSQL" → "postgresql"). ' +
+    'Node/group IDs are draw.io internal numeric IDs (e.g. "2", "15"). Edge source/target also use these numeric IDs. ' +
+    'These IDs are stable across preserve-mode edits; use them in edit_drawio_svg to reference existing elements. ' +
     'Icon data is NOT included in the response (use has_icon flag to see which nodes have icons). ' +
     'Note: layout is automatically recomputed when regenerating.',
   inputSchema: {

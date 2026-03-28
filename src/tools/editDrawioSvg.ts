@@ -13,6 +13,8 @@ export const EDIT_DRAWIO_SVG_TOOL = {
   name: 'edit_drawio_svg',
   description:
     'Edit an existing .drawio.svg file by adding, removing, or updating nodes, edges, and groups. ' +
+    'Use numeric IDs from read_drawio_svg to reference existing elements (e.g. remove_nodes: ["15"], update_nodes: [{id: "15", ...}]). ' +
+    'For add operations, use temporary IDs to establish relationships within the same call (e.g. add_nodes: [{id: "new", ...}], add_edges: [{source: "15", target: "new"}]). ' +
     'By default (layout_mode: "preserve"), existing node and group positions are kept exactly as-is; ' +
     'only newly added elements are placed automatically outside the existing layout. ' +
     'Use layout_mode: "recompute" to fully recompute layout with ELK. ' +

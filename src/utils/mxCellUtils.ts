@@ -16,11 +16,6 @@ export function extractAttr(attrs: string, name: string): string | undefined {
 
 // ─── Slug utility ─────────────────────────────────────────────────────────────
 
-/** Slugify a label string into a URL-safe identifier. */
-export function slugify(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'node';
-}
-
 // ─── Raw cell types & parsing ──────────────────────────────────────────────────
 
 /** Parsed mxCell representation. */
@@ -72,28 +67,6 @@ export function extractGeometry(cellXml: string): { x: number; y: number; width:
     width: parseFloat(extractAttr(g, 'width') ?? String(NODE_WIDTH)) || NODE_WIDTH,
     height: parseFloat(extractAttr(g, 'height') ?? String(NODE_HEIGHT)) || NODE_HEIGHT,
   };
-}
-
-// ─── ID maps ──────────────────────────────────────────────────────────────────
-
-/** Build logical↔numeric ID maps from parsed cells. */
-export function buildIdMaps(cells: RawCell[]): {
-  numericToLogical: Map<string, string>;
-  logicalToNumeric: Map<string, string>;
-} {
-  const slugCount = new Map<string, number>();
-  const numericToLogical = new Map<string, string>();
-  for (const c of cells.filter((c) => c.isVertex)) {
-    const slug = slugify(c.value || c.numericId);
-    const count = (slugCount.get(slug) ?? 0) + 1;
-    slugCount.set(slug, count);
-    const logicalId = count === 1 ? slug : `${slug}_${count}`;
-    numericToLogical.set(c.numericId, logicalId);
-  }
-  const logicalToNumeric = new Map<string, string>(
-    Array.from(numericToLogical.entries()).map(([n, l]) => [l, n]),
-  );
-  return { numericToLogical, logicalToNumeric };
 }
 
 // ─── Absolute coordinates ─────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ import { buildBoundsMap, computeEdgePoints, type Rect } from '../generator/edgeL
 import type { LayoutResult, LayoutNode, LayoutGroup } from '../layout/elkLayout.js';
 import { mergeNodeStyleOverrides, mergeGroupStyleOverrides, mergeEdgeUpdates } from '../utils/styleMerging.js';
 import { htmlDecode, htmlEncode, escapeXmlAttr, valueToXmlAttr } from '../utils/xmlEncoding.js';
-import { extractAttr, slugify, type RawCell, parseCells, extractGeometry, buildIdMaps, computeAbsCoords, computeBbox } from '../utils/mxCellUtils.js';
+import { extractAttr, type RawCell, parseCells, extractGeometry, computeAbsCoords, computeBbox } from '../utils/mxCellUtils.js';
 import { extractFormatBMxXml, encodeFormatBContent, type FormatBParts } from '../parser/formatBCodec.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -55,46 +55,21 @@ export async function surgicallyEditFormatB(
   // 1. Decode the mxGraphModel XML from the Format B content attribute
   const parts = extractFormatBMxXml(rawSvgContent);
 
-  // 2. Parse existing cells and build logical⟷numeric ID maps
+  // 2. Parse existing cells
   const cells = parseCells(parts.mxXml);
-  let { logicalToNumeric, numericToLogical } = buildIdMaps(cells);
-
-  // If the SVG has a persisted data-id-map, use it for stable IDs across consecutive edits
-  const idMapMatch = rawSvgContent.match(/\bdata-id-map="([^"]*)"/);
-  if (idMapMatch) {
-    try {
-      const decoded = htmlDecode(idMapMatch[1]);
-      const obj = JSON.parse(decoded) as Record<string, string>;
-      numericToLogical = new Map(Object.entries(obj));
-      logicalToNumeric = new Map(
-        Array.from(numericToLogical.entries()).map(([n, l]) => [l, n]),
-      );
-    } catch { /* ignore malformed data-id-map */ }
-  }
 
   // 3. Resolve icons for new nodes (needed to embed drawio data URIs in mxCell style)
   const newNodeIconMap = await resolveNewNodeIcons(input.add_nodes ?? []);
 
   // 4. Apply surgical changes to the mxXml string
-  const changesResult = applyChanges(parts.mxXml, cells, logicalToNumeric, newNodeIconMap, input);
+  const editedMxXml = applyChanges(parts.mxXml, cells, newNodeIconMap, input);
 
-  // 5. Build preserved ID map: numeric ID → logical ID (for stable IDs across edits)
-  const preservedNumToLogical = new Map<string, string>();
-  for (const [numId, logId] of numericToLogical) {
-    if (!changesResult.removeNumIds.has(numId)) {
-      preservedNumToLogical.set(numId, logId);
-    }
-  }
-  for (const [logId, numId] of changesResult.newIdMap) {
-    preservedNumToLogical.set(numId, logId);
-  }
+  // 5. Re-encode the edited mxGraphModel as Format B
+  const newContentEncoded = encodeFormatBContent(editedMxXml, parts);
 
-  // 6. Re-encode the edited mxGraphModel as Format B
-  const newContentEncoded = encodeFormatBContent(changesResult.editedMxXml, parts);
-
-  // 7. Parse the edited mxGraphModel to build DiagramSpec (preserving all positions + IDs)
-  const fakeSvg = `<svg content="${htmlEncode(changesResult.editedMxXml)}"></svg>`;
-  const spec = parseDrawioSvgContent(fakeSvg, input.file_path, preservedNumToLogical);
+  // 6. Parse the edited mxGraphModel to build DiagramSpec (using numeric IDs directly)
+  const fakeSvg = `<svg content="${htmlEncode(editedMxXml)}"></svg>`;
+  const spec = parseDrawioSvgContent(fakeSvg, input.file_path);
 
   // 7. Build LayoutResult — ALL positions come from mxGeometry (no new node IDs)
   const spacing = input.layout?.spacing ?? 60;
@@ -127,8 +102,8 @@ export async function surgicallyEditFormatB(
   // 9. Generate SVG visual
   const svgVisual = generateSvgVisual(layoutResult, spec.edges, icons, highlights);
 
-  // 10. Assemble final file (embed ID map for stable IDs across subsequent reads)
-  return assembleSvgFile(svgVisual, newContentEncoded, preservedNumToLogical);
+  // 10. Assemble final file
+  return assembleSvgFile(svgVisual, newContentEncoded);
 }
 
 // ─── Icon resolution for new nodes ────────────────────────────────────────────
@@ -164,30 +139,18 @@ async function resolveNewNodeIcons(
 
 // ─── Core surgical mxXml modification ─────────────────────────────────────────
 
-interface ApplyChangesResult {
-  editedMxXml: string;
-  newIdMap: Map<string, string>;    // user logical ID → new numeric ID
-  removeNumIds: Set<string>;         // numeric IDs of deleted cells
-}
-
 function applyChanges(
   mxXml: string,
   cells: RawCell[],
-  logicalToNumeric: Map<string, string>,
   newNodeIconMap: Map<string, NewNodeIconData>,
   input: EditDrawioSvgInput,
-): ApplyChangesResult {
+): string {
   const spacing = input.layout?.spacing ?? 60;
   const absCoords = computeAbsCoords(cells);
   const bbox = computeBbox(cells, absCoords);
 
-  // ── Deletion sets ──
-  const removeLogicals = new Set([...(input.remove_nodes ?? []), ...(input.remove_groups ?? [])]);
-  const removeNumIds = new Set<string>();
-  for (const logId of removeLogicals) {
-    const numId = logicalToNumeric.get(logId);
-    if (numId) removeNumIds.add(numId);
-  }
+  // ── Deletion sets (IDs from user are already numeric IDs) ──
+  const removeNumIds = new Set([...(input.remove_nodes ?? []), ...(input.remove_groups ?? [])]);
 
   // When a GROUP is deleted, its direct children should be re-parented to the group's parent.
   // Build a map: deletedGroupNumId → its parent numId.
@@ -198,12 +161,10 @@ function applyChanges(
     }
   }
 
-  // remove_edges by source::target
+  // remove_edges by source::target (IDs are already numeric)
   const removeEdgeSet = new Set<string>();
   for (const e of input.remove_edges ?? []) {
-    const s = logicalToNumeric.get(e.source) ?? e.source;
-    const t = logicalToNumeric.get(e.target) ?? e.target;
-    removeEdgeSet.add(`${s}::${t}`);
+    removeEdgeSet.add(`${e.source}::${e.target}`);
   }
 
   // ── Update map ──
@@ -214,19 +175,15 @@ function applyChanges(
     styleOverridesFn?: (existing: string) => string;
   }>();
   for (const upd of input.update_nodes ?? []) {
-    const numId = logicalToNumeric.get(upd.id);
-    if (!numId) continue;
     const entry: { value?: string; style?: string; styleOverridesFn?: (s: string) => string } = {};
     if (upd.label !== undefined) entry.value = upd.label;
     if (upd.style_overrides !== undefined) {
       const so = upd.style_overrides;
       entry.styleOverridesFn = (existing: string) => mergeNodeStyleOverrides(existing, so);
     }
-    updateMap.set(numId, entry);
+    updateMap.set(upd.id, entry);  // upd.id is already a numeric ID
   }
   for (const upd of input.update_groups ?? []) {
-    const numId = logicalToNumeric.get(upd.id);
-    if (!numId) continue;
     const entry: { value?: string; style?: string; styleOverridesFn?: (s: string) => string } = {};
     if (upd.label !== undefined) entry.value = upd.label;
     if (upd.style !== undefined) entry.style = buildGroupStyle(upd.style, upd.style_overrides);
@@ -234,7 +191,7 @@ function applyChanges(
       const so = upd.style_overrides;
       entry.styleOverridesFn = (existing: string) => mergeGroupStyleOverrides(existing, so);
     }
-    updateMap.set(numId, entry);
+    updateMap.set(upd.id, entry);  // upd.id is already a numeric ID
   }
 
   // ── Edge update map (keyed by "numericSrc::numericTgt") ──
@@ -243,8 +200,8 @@ function applyChanges(
     styleFn?: (existing: string) => string;
   }>();
   for (const upd of input.update_edges ?? []) {
-    const s = logicalToNumeric.get(upd.source) ?? upd.source;
-    const t = logicalToNumeric.get(upd.target) ?? upd.target;
+    const s = upd.source;  // already numeric ID
+    const t = upd.target;
     const entry: { value?: string; styleFn?: (existing: string) => string } = {};
     if (upd.label !== undefined) entry.value = upd.label;
     if (upd.style !== undefined || upd.connector !== undefined ||
@@ -357,13 +314,11 @@ function applyChanges(
     const newChildren: Array<{ logId: string; n: NonNullable<EditDrawioSvgInput['add_nodes']>[number] }> = [];
 
     for (const childId of g.children) {
-      const existingNumId = logicalToNumeric.get(childId);
-      if (existingNumId) {
-        const cell = cells.find((c) => c.numericId === existingNumId);
-        if (cell) {
-          const abs = absCoords.get(existingNumId) ?? { x: cell.x, y: cell.y };
-          existingChildren.push({ logId: childId, numId: existingNumId, abs, width: cell.width, height: cell.height });
-        }
+      // childId is a numeric ID for existing cells, or a temporary ID for new nodes
+      const cell = cells.find((c) => c.numericId === childId);
+      if (cell) {
+        const abs = absCoords.get(childId) ?? { x: cell.x, y: cell.y };
+        existingChildren.push({ logId: childId, numId: childId, abs, width: cell.width, height: cell.height });
       } else {
         const newNode = (input.add_nodes ?? []).find((n) => n.id === childId);
         if (newNode) newChildren.push({ logId: childId, n: newNode });
@@ -443,7 +398,7 @@ function applyChanges(
   if ((input.add_edges ?? []).length > 0) {
     // Build a bounds map from all cells (including newly added ones) for edge point computation
     const allCellsForEdges = buildBoundsMapFromCells(cells, absCoords, newIdMap, newCells, input);
-    const newEdges = buildNewEdgesWithNumericIds(input.add_edges ?? [], logicalToNumeric, newIdMap);
+    const newEdges = buildNewEdgesWithNumericIds(input.add_edges ?? [], newIdMap);
 
     const edgePts = computeEdgePoints(
       newEdges.map((e) => ({
@@ -477,7 +432,7 @@ function applyChanges(
 
   // Insert all new cells before </root>
   result = result.replace('</root>', newCells.join('') + '</root>');
-  return { editedMxXml: result, newIdMap, removeNumIds };
+  return result;
 }
 
 // ─── Patch a cell's parent and position in an already-processed mxXml string ──
@@ -551,12 +506,12 @@ interface NewEdge {
 
 function buildNewEdgesWithNumericIds(
   addEdges: NonNullable<EditDrawioSvgInput['add_edges']>,
-  logicalToNumeric: Map<string, string>,
   newIdMap: Map<string, string>,
 ): NewEdge[] {
   return addEdges.map((e) => ({
-    sourceNumId: logicalToNumeric.get(e.source) ?? newIdMap.get(e.source) ?? e.source,
-    targetNumId: logicalToNumeric.get(e.target) ?? newIdMap.get(e.target) ?? e.target,
+    // For existing nodes: e.source is already a numeric ID. For new nodes: look up in newIdMap.
+    sourceNumId: newIdMap.get(e.source) ?? e.source,
+    targetNumId: newIdMap.get(e.target) ?? e.target,
     label: e.label,
     style: e.style,
     connector: e.connector,
@@ -625,21 +580,10 @@ function buildBoundsMapFromCells(
  *   - SVG visual: from our renderer (accurate structure, simplified styling)
  *   - content attribute: Format B encoded mxfile (original draw.io styles preserved)
  */
-function assembleSvgFile(
-  svgVisual: string,
-  formatBContentEncoded: string,
-  preservedIdMap?: Map<string, string>,
-): string {
+function assembleSvgFile(svgVisual: string, formatBContentEncoded: string): string {
   const attrsMatch = svgVisual.match(/^<svg([^>]*)>/);
   const innerMatch = svgVisual.match(/^<svg[^>]*>([\s\S]*)<\/svg>$/);
   if (!attrsMatch || !innerMatch) throw new Error('Invalid SVG visual format');
-  // Replace content and data-id-map attributes if present, or add them
-  let svgAttrs = attrsMatch[1]
-    .replace(/\s+content="[^"]*"/, '')
-    .replace(/\s+data-id-map="[^"]*"/, '');
-  // Embed the numeric→logical ID map so subsequent reads preserve IDs
-  const idMapAttr = preservedIdMap && preservedIdMap.size > 0
-    ? ` data-id-map="${htmlEncode(JSON.stringify(Object.fromEntries(preservedIdMap)))}"`
-    : '';
-  return `<svg${svgAttrs} content="${formatBContentEncoded}"${idMapAttr}>${innerMatch[1]}</svg>`;
+  const svgAttrs = attrsMatch[1].replace(/\s+content="[^"]*"/, '');
+  return `<svg${svgAttrs} content="${formatBContentEncoded}">${innerMatch[1]}</svg>`;
 }
