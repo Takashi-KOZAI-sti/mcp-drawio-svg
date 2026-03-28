@@ -31,6 +31,7 @@ import { buildGroupStyle, buildNodeStyle, buildEdgeStyle } from '../generator/mx
 import type { InputEdge, NodeStyleOverrides, GroupStyleOverrides, EdgeStyleOverrides } from '../layout/elkLayout.js';
 import { buildBoundsMap, computeEdgePoints, type Rect } from '../generator/edgeLayout.js';
 import type { LayoutResult, LayoutNode, LayoutGroup } from '../layout/elkLayout.js';
+import { htmlDecode, htmlEncode, escapeXmlAttr, valueToXmlAttr } from '../utils/xmlEncoding.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,55 +41,6 @@ const GROUP_PADDING_TOP = 40;
 const GROUP_PADDING_SIDE = 20;
 
 // ─── HTML / XML helpers ────────────────────────────────────────────────────────
-
-function htmlDecode(s: string): string {
-  return s
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&#10;/g, '\n')
-    .replace(/&#13;/g, '\r');
-}
-
-function htmlEncode(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function escapeXmlAttr(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * mxCell value attribute encoder.
- * Normalizes existing entities first (avoids double-encoding &#10; → &amp;#10;),
- * then re-encodes as valid XML attribute value with newlines as &#10;.
- */
-function valueToXmlAttr(str: string): string {
-  return str
-    // Step 1: normalize entities → characters
-    .replace(/&#10;/g, '\n')
-    .replace(/&#13;/g, '\r')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    // Step 2: XML attribute encode (newlines → &#10;)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/\n/g, '&#10;')
-    .replace(/\r/g, '&#13;');
-}
 
 function extractAttr(attrs: string, name: string): string | undefined {
   const re = new RegExp(`\\b${name}="([^"]*)"`, 'i');

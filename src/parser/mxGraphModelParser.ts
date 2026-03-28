@@ -1,6 +1,7 @@
 import fs from 'fs';
 import zlib from 'zlib';
 import type { LayoutOptions, NodeStyleOverrides, EdgeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
+import { htmlDecode } from '../utils/xmlEncoding.js';
 
 export interface ParsedNode {
   id: string;
@@ -146,16 +147,6 @@ function extractMxGraphModelXml(svgContent: string): string {
   }
 
   throw new Error('Unrecognized drawio content format (expected <mxGraphModel> or <mxfile>).');
-}
-
-function htmlDecode(s: string): string {
-  return s
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&#10;/g, '\n')
-    .replace(/&#13;/g, '\r');
 }
 
 // ─── Extract data-layout attribute ───────────────────────────────────────────

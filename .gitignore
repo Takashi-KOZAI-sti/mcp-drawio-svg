@@ -7,5 +7,6 @@ test-output/
 # Test / debug artifacts
 verify-*.mjs
 test-*.mjs
+test-snapshots/
 debug-*.json
 *parameters.json

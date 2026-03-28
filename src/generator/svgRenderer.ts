@@ -2,6 +2,7 @@ import type { InputEdge } from '../layout/elkLayout.js';
 import type { LayoutResult, LayoutNode, LayoutGroup, NodeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
 import type { NodeIcons, NodeHighlights } from './mxGraphModel.js';
 import { buildBoundsMap, computeEdgePoints } from './edgeLayout.js';
+import { escapeXmlAttr } from '../utils/xmlEncoding.js';
 
 // Re-export color helpers by inlining them (avoids circular deps in SVG context)
 function resolveColor(color: string): string {
@@ -146,7 +147,7 @@ function renderGroupAt(group: LayoutGroup, absX: number, absY: number): string {
     `rx="${rx}" fill="${finalFill}" stroke="${finalStroke}" stroke-width="${strokeWidth}"${dashAttr}${opacityAttr}${filterAttr}/>` +
     `<text x="${absX + 10}" y="${absY + 16}" ` +
     `font-family="Arial,sans-serif" font-size="${fontSize}" ` +
-    `font-weight="${fontWeight}" font-style="${fontStyle}" text-decoration="${textDecoration}" fill="${finalFont}">${escapeXml(group.label)}</text>`
+    `font-weight="${fontWeight}" font-style="${fontStyle}" text-decoration="${textDecoration}" fill="${finalFont}">${escapeXmlAttr(group.label)}</text>`
   );
 }
 
@@ -174,7 +175,7 @@ function renderNode(
     const textLines = lines
       .map(
         (line, i) =>
-          `<tspan x="${cx}" dy="${i === 0 ? 0 : LABEL_LINE_HEIGHT}">${escapeXml(line)}</tspan>`,
+          `<tspan x="${cx}" dy="${i === 0 ? 0 : LABEL_LINE_HEIGHT}">${escapeXmlAttr(line)}</tspan>`,
       )
       .join('');
 
@@ -212,7 +213,7 @@ function renderNode(
     const textAnchor = so?.text_align === 'left' ? 'start' : (so?.text_align === 'right' ? 'end' : 'middle');
     const textX = so?.text_align === 'left' ? absX + 6 : (so?.text_align === 'right' ? absX + node.width - 6 : cx);
     const tspans = rectLines
-      .map((line, i) => `<tspan x="${textX}" dy="${i === 0 ? 0 : LABEL_LINE_HEIGHT}">${escapeXml(line)}</tspan>`)
+      .map((line, i) => `<tspan x="${textX}" dy="${i === 0 ? 0 : LABEL_LINE_HEIGHT}">${escapeXmlAttr(line)}</tspan>`)
       .join('');
     return (
       `<g${opacityAttr}${filterAttr}>` +
@@ -288,7 +289,7 @@ function renderEdges(edges: InputEdge[], layout: LayoutResult): string[] {
     const label = edge.label
       ? `<text x="${labelX}" y="${labelY}" text-anchor="middle" ` +
         `font-family="Arial,sans-serif" font-size="${labelFontSize}" fill="${labelFontColor}" ` +
-        `font-weight="${labelFontWeight}" font-style="${labelFontStyle}" text-decoration="${labelTextDecoration}">${escapeXml(edge.label)}</text>`
+        `font-weight="${labelFontWeight}" font-style="${labelFontStyle}" text-decoration="${labelTextDecoration}">${escapeXmlAttr(edge.label)}</text>`
       : '';
 
     const markerEnd = edge.arrow === 'none' ? '' : 'marker-end="url(#arrow-end)"';
@@ -320,10 +321,3 @@ function wrapText(text: string, maxWidth: number): string[] {
   return lines;
 }
 
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
