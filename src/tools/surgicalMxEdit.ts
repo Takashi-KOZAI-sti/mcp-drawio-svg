@@ -57,20 +57,44 @@ export async function surgicallyEditFormatB(
 
   // 2. Parse existing cells and build logical⟷numeric ID maps
   const cells = parseCells(parts.mxXml);
-  const { logicalToNumeric } = buildIdMaps(cells);
+  let { logicalToNumeric, numericToLogical } = buildIdMaps(cells);
+
+  // If the SVG has a persisted data-id-map, use it for stable IDs across consecutive edits
+  const idMapMatch = rawSvgContent.match(/\bdata-id-map="([^"]*)"/);
+  if (idMapMatch) {
+    try {
+      const decoded = htmlDecode(idMapMatch[1]);
+      const obj = JSON.parse(decoded) as Record<string, string>;
+      numericToLogical = new Map(Object.entries(obj));
+      logicalToNumeric = new Map(
+        Array.from(numericToLogical.entries()).map(([n, l]) => [l, n]),
+      );
+    } catch { /* ignore malformed data-id-map */ }
+  }
 
   // 3. Resolve icons for new nodes (needed to embed drawio data URIs in mxCell style)
   const newNodeIconMap = await resolveNewNodeIcons(input.add_nodes ?? []);
 
   // 4. Apply surgical changes to the mxXml string
-  const editedMxXml = applyChanges(parts.mxXml, cells, logicalToNumeric, newNodeIconMap, input);
+  const changesResult = applyChanges(parts.mxXml, cells, logicalToNumeric, newNodeIconMap, input);
 
-  // 5. Re-encode the edited mxGraphModel as Format B
-  const newContentEncoded = encodeFormatBContent(editedMxXml, parts);
+  // 5. Build preserved ID map: numeric ID → logical ID (for stable IDs across edits)
+  const preservedNumToLogical = new Map<string, string>();
+  for (const [numId, logId] of numericToLogical) {
+    if (!changesResult.removeNumIds.has(numId)) {
+      preservedNumToLogical.set(numId, logId);
+    }
+  }
+  for (const [logId, numId] of changesResult.newIdMap) {
+    preservedNumToLogical.set(numId, logId);
+  }
 
-  // 6. Parse the edited mxGraphModel to build DiagramSpec (preserving all positions)
-  const fakeSvg = `<svg content="${htmlEncode(editedMxXml)}"></svg>`;
-  const spec = parseDrawioSvgContent(fakeSvg, input.file_path);
+  // 6. Re-encode the edited mxGraphModel as Format B
+  const newContentEncoded = encodeFormatBContent(changesResult.editedMxXml, parts);
+
+  // 7. Parse the edited mxGraphModel to build DiagramSpec (preserving all positions + IDs)
+  const fakeSvg = `<svg content="${htmlEncode(changesResult.editedMxXml)}"></svg>`;
+  const spec = parseDrawioSvgContent(fakeSvg, input.file_path, preservedNumToLogical);
 
   // 7. Build LayoutResult — ALL positions come from mxGeometry (no new node IDs)
   const spacing = input.layout?.spacing ?? 60;
@@ -103,8 +127,8 @@ export async function surgicallyEditFormatB(
   // 9. Generate SVG visual
   const svgVisual = generateSvgVisual(layoutResult, spec.edges, icons, highlights);
 
-  // 10. Assemble final file
-  return assembleSvgFile(svgVisual, newContentEncoded);
+  // 10. Assemble final file (embed ID map for stable IDs across subsequent reads)
+  return assembleSvgFile(svgVisual, newContentEncoded, preservedNumToLogical);
 }
 
 // ─── Icon resolution for new nodes ────────────────────────────────────────────
@@ -140,13 +164,19 @@ async function resolveNewNodeIcons(
 
 // ─── Core surgical mxXml modification ─────────────────────────────────────────
 
+interface ApplyChangesResult {
+  editedMxXml: string;
+  newIdMap: Map<string, string>;    // user logical ID → new numeric ID
+  removeNumIds: Set<string>;         // numeric IDs of deleted cells
+}
+
 function applyChanges(
   mxXml: string,
   cells: RawCell[],
   logicalToNumeric: Map<string, string>,
   newNodeIconMap: Map<string, NewNodeIconData>,
   input: EditDrawioSvgInput,
-): string {
+): ApplyChangesResult {
   const spacing = input.layout?.spacing ?? 60;
   const absCoords = computeAbsCoords(cells);
   const bbox = computeBbox(cells, absCoords);
@@ -447,7 +477,7 @@ function applyChanges(
 
   // Insert all new cells before </root>
   result = result.replace('</root>', newCells.join('') + '</root>');
-  return result;
+  return { editedMxXml: result, newIdMap, removeNumIds };
 }
 
 // ─── Patch a cell's parent and position in an already-processed mxXml string ──
@@ -595,11 +625,21 @@ function buildBoundsMapFromCells(
  *   - SVG visual: from our renderer (accurate structure, simplified styling)
  *   - content attribute: Format B encoded mxfile (original draw.io styles preserved)
  */
-function assembleSvgFile(svgVisual: string, formatBContentEncoded: string): string {
+function assembleSvgFile(
+  svgVisual: string,
+  formatBContentEncoded: string,
+  preservedIdMap?: Map<string, string>,
+): string {
   const attrsMatch = svgVisual.match(/^<svg([^>]*)>/);
   const innerMatch = svgVisual.match(/^<svg[^>]*>([\s\S]*)<\/svg>$/);
   if (!attrsMatch || !innerMatch) throw new Error('Invalid SVG visual format');
-  // Replace content attribute if present, or add it
-  const svgAttrs = attrsMatch[1].replace(/\s+content="[^"]*"/, '');
-  return `<svg${svgAttrs} content="${formatBContentEncoded}">${innerMatch[1]}</svg>`;
+  // Replace content and data-id-map attributes if present, or add them
+  let svgAttrs = attrsMatch[1]
+    .replace(/\s+content="[^"]*"/, '')
+    .replace(/\s+data-id-map="[^"]*"/, '');
+  // Embed the numeric→logical ID map so subsequent reads preserve IDs
+  const idMapAttr = preservedIdMap && preservedIdMap.size > 0
+    ? ` data-id-map="${htmlEncode(JSON.stringify(Object.fromEntries(preservedIdMap)))}"`
+    : '';
+  return `<svg${svgAttrs} content="${formatBContentEncoded}"${idMapAttr}>${innerMatch[1]}</svg>`;
 }

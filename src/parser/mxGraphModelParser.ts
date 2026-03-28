@@ -105,11 +105,28 @@ export function parseDrawioSvgFile(filePath: string): DiagramSpec {
   return parseDrawioSvgContent(content, filePath);
 }
 
-export function parseDrawioSvgContent(svgContent: string, filePath: string): DiagramSpec {
+export function parseDrawioSvgContent(
+  svgContent: string,
+  filePath: string,
+  preservedIdMap?: Map<string, string>,
+): DiagramSpec {
   const mxXml = extractMxGraphModelXml(svgContent);
   const layoutOptions = extractLayoutOptions(svgContent);
   const cells = parseMxCells(mxXml);
-  return buildDiagramSpec(cells, layoutOptions, filePath);
+
+  // If no explicit preserved map, check for embedded data-id-map attribute in SVG
+  if (!preservedIdMap) {
+    const idMapMatch = svgContent.match(/\bdata-id-map="([^"]*)"/);
+    if (idMapMatch) {
+      try {
+        const decoded = htmlDecode(idMapMatch[1]);
+        const obj = JSON.parse(decoded) as Record<string, string>;
+        preservedIdMap = new Map(Object.entries(obj));
+      } catch { /* ignore malformed data-id-map */ }
+    }
+  }
+
+  return buildDiagramSpec(cells, layoutOptions, filePath, preservedIdMap);
 }
 
 // ─── Extract mxGraphModel XML from SVG content attribute ─────────────────────
@@ -210,7 +227,12 @@ function parseMxCells(xml: string): RawCell[] {
 
 // ─── Build DiagramSpec from raw cells ────────────────────────────────────────
 
-function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undefined, filePath: string): DiagramSpec {
+function buildDiagramSpec(
+  cells: RawCell[],
+  layoutOptions: LayoutOptions | undefined,
+  filePath: string,
+  preservedIdMap?: Map<string, string>,
+): DiagramSpec {
   // Determine which numeric IDs are group containers (have at least one child with vertex=1)
   const groupIds = new Set<string>();
   for (const c of cells) {
@@ -234,14 +256,33 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
   // Build logical ID map (label-slug → logical id), deduplicating
   const slugCount = new Map<string, number>();
   const numericToLogical = new Map<string, string>();
+  // Track logical IDs already claimed by the preserved map to avoid collisions
+  const claimedLogicalIds = new Set<string>(preservedIdMap?.values() ?? []);
 
   const allVertices = cells.filter((c) => c.isVertex);
   for (const c of allVertices) {
+    // If a preserved mapping exists for this cell, use it directly
+    if (preservedIdMap?.has(c.numericId)) {
+      const logicalId = preservedIdMap.get(c.numericId)!;
+      numericToLogical.set(c.numericId, logicalId);
+      // Still track slug count so fallback IDs don't produce gaps
+      const slug = slugify(c.value || c.numericId);
+      slugCount.set(slug, (slugCount.get(slug) ?? 0) + 1);
+      continue;
+    }
+
+    // Fallback: generate from label with collision avoidance
     const slug = slugify(c.value || c.numericId);
     const count = (slugCount.get(slug) ?? 0) + 1;
     slugCount.set(slug, count);
-    const logicalId = count === 1 ? slug : `${slug}_${count}`;
+    let logicalId = count === 1 ? slug : `${slug}_${count}`;
+    while (claimedLogicalIds.has(logicalId)) {
+      const next = (slugCount.get(slug) ?? 0) + 1;
+      slugCount.set(slug, next);
+      logicalId = `${slug}_${next}`;
+    }
     numericToLogical.set(c.numericId, logicalId);
+    claimedLogicalIds.add(logicalId);
   }
 
   // Classify cells
