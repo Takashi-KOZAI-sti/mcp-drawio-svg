@@ -2,7 +2,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import type { LayoutOptions, NodeStyleOverrides, EdgeStyleOverrides, GroupStyleOverrides } from '../layout/elkLayout.js';
 import { htmlDecode } from '../utils/xmlEncoding.js';
-import { extractAttr, extractGeometry, slugify } from '../utils/mxCellUtils.js';
+import { extractAttr, extractGeometry, slugify, computeAbsCoords } from '../utils/mxCellUtils.js';
 import { parseStyleMap } from '../utils/styleMerging.js';
 
 export interface ParsedNode {
@@ -211,10 +211,6 @@ function parseMxCells(xml: string): RawCell[] {
 // ─── Build DiagramSpec from raw cells ────────────────────────────────────────
 
 function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undefined, filePath: string): DiagramSpec {
-  // Build a map from numericId → RawCell for fast lookup
-  const byId = new Map<string, RawCell>();
-  for (const c of cells) byId.set(c.numericId, c);
-
   // Determine which numeric IDs are group containers (have at least one child with vertex=1)
   const groupIds = new Set<string>();
   for (const c of cells) {
@@ -233,7 +229,7 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
   }
 
   // Compute absolute coordinates for each vertex cell
-  const absCoords = computeAbsoluteCoords(cells, byId, groupIds);
+  const absCoords = computeAbsCoords(cells, groupIds);
 
   // Build logical ID map (label-slug → logical id), deduplicating
   const slugCount = new Map<string, number>();
@@ -316,46 +312,6 @@ function buildDiagramSpec(cells: RawCell[], layoutOptions: LayoutOptions | undef
   }
 
   return { nodes, edges, groups, layout: layoutOptions, output_path: filePath };
-}
-
-// ─── Absolute coordinate computation ─────────────────────────────────────────
-
-function computeAbsoluteCoords(
-  cells: RawCell[],
-  byId: Map<string, RawCell>,
-  groupIds: Set<string>,
-): Map<string, { x: number; y: number }> {
-  const result = new Map<string, { x: number; y: number }>();
-
-  function getAbsolutePos(numericId: string, visited = new Set<string>()): { x: number; y: number } {
-    if (result.has(numericId)) return result.get(numericId)!;
-    if (visited.has(numericId)) return { x: 0, y: 0 }; // cycle guard
-    visited.add(numericId);
-
-    const cell = byId.get(numericId);
-    if (!cell) return { x: 0, y: 0 };
-
-    if (cell.parent === '1' || cell.parent === '0') {
-      // Top-level: coordinates are absolute
-      const pos = { x: cell.x, y: cell.y };
-      result.set(numericId, pos);
-      return pos;
-    }
-
-    // Relative: add parent's absolute position
-    const parentPos = getAbsolutePos(cell.parent, visited);
-    const pos = { x: parentPos.x + cell.x, y: parentPos.y + cell.y };
-    result.set(numericId, pos);
-    return pos;
-  }
-
-  for (const cell of cells) {
-    if (cell.isVertex && !groupIds.has(cell.numericId)) {
-      getAbsolutePos(cell.numericId);
-    }
-  }
-
-  return result;
 }
 
 // ─── Style classification helpers ────────────────────────────────────────────

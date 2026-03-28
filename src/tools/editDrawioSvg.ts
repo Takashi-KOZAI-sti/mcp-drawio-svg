@@ -1,7 +1,8 @@
 import fs from 'fs';
 import type { InputEdge, InputGroup, LayoutOptions } from '../layout/elkLayout.js';
 import { parseDrawioSvgFile, detectDrawioFormat } from '../parser/mxGraphModelParser.js';
-import { handleCreateDrawioSvg, resolveIcons, type InputNodeWithHighlight, NODE_STYLE_OVERRIDES_SCHEMA, EDGE_STYLE_OVERRIDES_SCHEMA, GROUP_STYLE_OVERRIDES_SCHEMA } from './createDrawioSvg.js';
+import { handleCreateDrawioSvg, resolveIcons, type InputNodeWithHighlight } from './createDrawioSvg.js';
+import { NODE_STYLE_OVERRIDES_SCHEMA, EDGE_STYLE_OVERRIDES_SCHEMA, GROUP_STYLE_OVERRIDES_SCHEMA } from '../schemas/styleOverrides.js';
 import { surgicallyEditFormatB } from './surgicalMxEdit.js';
 import { buildPreservedLayoutResult } from '../layout/preservedLayout.js';
 import { generateMxGraphModel } from '../generator/mxGraphModel.js';

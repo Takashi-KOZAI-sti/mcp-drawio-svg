@@ -98,8 +98,12 @@ export function buildIdMaps(cells: RawCell[]): {
 
 // ─── Absolute coordinates ─────────────────────────────────────────────────────
 
-/** Compute absolute coordinates for all cells (resolving parent offsets). */
-export function computeAbsCoords(cells: RawCell[]): Map<string, { x: number; y: number }> {
+/** Compute absolute coordinates for all vertex cells (resolving parent offsets).
+ *  If skipIds is provided, vertices whose numericId is in that set are excluded. */
+export function computeAbsCoords(
+  cells: RawCell[],
+  skipIds?: Set<string>,
+): Map<string, { x: number; y: number }> {
   const byId = new Map<string, RawCell>(cells.map((c) => [c.numericId, c]));
   const result = new Map<string, { x: number; y: number }>();
 
@@ -119,7 +123,9 @@ export function computeAbsCoords(cells: RawCell[]): Map<string, { x: number; y: 
     result.set(id, pos);
     return pos;
   }
-  for (const c of cells) if (c.isVertex) getAbs(c.numericId);
+  for (const c of cells) {
+    if (c.isVertex && !(skipIds?.has(c.numericId))) getAbs(c.numericId);
+  }
   return result;
 }
 
