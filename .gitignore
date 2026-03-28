@@ -3,3 +3,9 @@ dist/
 *.drawio.svg
 test-output/
 .DS_Store
+
+# Test / debug artifacts
+verify-*.mjs
+test-*.mjs
+debug-*.json
+*parameters.json
